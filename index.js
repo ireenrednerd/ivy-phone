@@ -1289,7 +1289,7 @@ const DEFAULTS = {
     autoPhotos: false,
     imageMode: 'tag',
     imageCommand: '/sd quiet=true {{prompt}}',
-    imageTag: `<img data-iig-instruction='{"style":"cinematic photo, phone camera","prompt":"{{prompt}}","aspect_ratio":"3:4","image_size":"1K"}' src="[IMG:GEN]">`,
+    imageTag: `<img data-iig-instruction='{"prompt":"{{prompt}}","aspect_ratio":"3:4"}' src="[IMG:GEN]">`,
     timeMacro: '{{getvar::clock}}',
     dateMacro: '{{getvar::date}}',
     profile: '',
@@ -1598,7 +1598,8 @@ function extractUrl(result) {
 // забираем путь и прячем это сообщение из сцены.
 async function generateViaTag(ev, prompt) {
     const ctx = getContext();
-    const tag = settings().imageTag.replace('{{prompt}}', prompt.replace(/"/g, "'"));
+    const safe = prompt.replace(/"/g, "'").replace(/[\r\n]+/g, ' ').trim();
+    const tag = settings().imageTag.replace('{{prompt}}', () => safe);
 
     // Носитель тега — ОБЫЧНОЕ сообщение персонажа. sillyimages сканирует
     // только видимые ответы, поэтому не помечаем его системным и не прячем
@@ -1612,18 +1613,22 @@ async function generateViaTag(ev, prompt) {
         extra: { ivyph_carrier: true },
     };
     ctx.chat.push(carrier);
+    const idx = ctx.chat.length - 1;
     ctx.addOneMessage(carrier);
     await ctx.saveChat();
-    const idx = ctx.chat.length - 1;
 
-    // подтолкнём: некоторые сборки sillyimages ловят по событию рендера
-    try { eventSource.emit(event_types.MESSAGE_RECEIVED, idx); } catch { /* ignore */ }
-    try { eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, idx); } catch { /* ignore */ }
+    // sillyimages подключается к реальному потоку сообщений. Даём ей тот же
+    // сигнал, что и настоящий ответ модели, и ждём — событие может быть
+    // асинхронным, поэтому шлём и await, и обычный emit.
+    try { await eventSource.emit(event_types.MESSAGE_RECEIVED, idx); } catch { /* ignore */ }
+    try { await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, idx); } catch { /* ignore */ }
+    try { await eventSource.emit(event_types.MESSAGE_UPDATED, idx); } catch { /* ignore */ }
 
     // ждём подмены [IMG:GEN] на реальный путь — до 3 минут
     for (let i = 0; i < 180; i++) {
         await wait(1000);
-        const body = String(ctx.chat[idx]?.mes || '');
+        // перечитываем именно из живого chat — sillyimages пишет туда же
+        const body = String(getContext().chat?.[idx]?.mes || '');
         const src = body.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1];
 
         if (src && !/IMG:GEN/i.test(src) && !/error\.svg/i.test(src)) {
