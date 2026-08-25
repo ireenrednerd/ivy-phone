@@ -656,7 +656,15 @@
 
     .ivyph-status { padding-top: max(7px, env(safe-area-inset-top)); }
     .ivyph-dock { padding-bottom: env(safe-area-inset-bottom); }
-    .ivyph-launcher { top: auto; bottom: 92px; right: 10px; }
+    .ivyph-launcher {
+        top: auto;
+        bottom: 76px;
+        right: 12px;
+        width: 46px;
+        height: 46px;
+        border-color: #4a5763;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, .6);
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1021,3 +1029,42 @@
 [data-skin="nokia"] .ivyph-react { border-radius: 0; background: var(--ph-chrome); }
 [data-skin="nokia"] .ivyph-shot { border-color: var(--ph-line); background: var(--ph-chrome); }
 [data-skin="nokia"] .ivyph-shot-btn { background: var(--ph-text); color: var(--ph-bg); border-radius: 0; }
+
+/* ---------------------------------------------------------- wand menu */
+
+#ivyph_menu_item { cursor: pointer; }
+#ivyph_menu_item .ivyph-i { width: 16px; height: 16px; }
+
+/* ---------------------------------------------------------- send-form button */
+/* Кнопка внутри панели таверны: подстраивается под её иконки. */
+
+.ivyph-sendbtn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex: none;
+    cursor: pointer;
+    color: inherit;
+    opacity: .75;
+    transition: opacity .15s;
+}
+
+.ivyph-sendbtn:hover { opacity: 1; }
+.ivyph-sendbtn .ivyph-i { width: 20px; height: 20px; }
+.ivyph-sendbtn.ivyph-has-unread { opacity: 1; color: #d98b6f; }
+
+.ivyph-sendbtn .ivyph-badge {
+    top: -4px;
+    right: -4px;
+    min-width: 16px;
+    height: 16px;
+    font-size: 10px;
+    line-height: 16px;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, .55);
+}
+
+/* если кнопка встала в панель — плавающую прячем, чтобы не двоилось */
+body.ivyph-mounted .ivyph-launcher { display: none !important; }

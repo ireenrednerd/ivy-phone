@@ -667,7 +667,15 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 
     .ivyph-status { padding-top: max(7px, env(safe-area-inset-top)); }
     .ivyph-dock { padding-bottom: env(safe-area-inset-bottom); }
-    .ivyph-launcher { top: auto; bottom: 92px; right: 10px; }
+    .ivyph-launcher {
+        top: auto;
+        bottom: 76px;
+        right: 12px;
+        width: 46px;
+        height: 46px;
+        border-color: #4a5763;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, .6);
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1032,6 +1040,45 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 [data-skin="nokia"] .ivyph-react { border-radius: 0; background: var(--ph-chrome); }
 [data-skin="nokia"] .ivyph-shot { border-color: var(--ph-line); background: var(--ph-chrome); }
 [data-skin="nokia"] .ivyph-shot-btn { background: var(--ph-text); color: var(--ph-bg); border-radius: 0; }
+
+/* ---------------------------------------------------------- wand menu */
+
+#ivyph_menu_item { cursor: pointer; }
+#ivyph_menu_item .ivyph-i { width: 16px; height: 16px; }
+
+/* ---------------------------------------------------------- send-form button */
+/* Кнопка внутри панели таверны: подстраивается под её иконки. */
+
+.ivyph-sendbtn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex: none;
+    cursor: pointer;
+    color: inherit;
+    opacity: .75;
+    transition: opacity .15s;
+}
+
+.ivyph-sendbtn:hover { opacity: 1; }
+.ivyph-sendbtn .ivyph-i { width: 20px; height: 20px; }
+.ivyph-sendbtn.ivyph-has-unread { opacity: 1; color: #d98b6f; }
+
+.ivyph-sendbtn .ivyph-badge {
+    top: -4px;
+    right: -4px;
+    min-width: 16px;
+    height: 16px;
+    font-size: 10px;
+    line-height: 16px;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, .55);
+}
+
+/* если кнопка встала в панель — плавающую прячем, чтобы не двоилось */
+body.ivyph-mounted .ivyph-launcher { display: none !important; }
 `;
 
 function injectStyles() {
@@ -1631,11 +1678,15 @@ function stampOf(e) {
 function buildShell() {
     if (ui) return;
 
+    // Кнопку вешаем в саму панель отправки таверны — там её невозможно
+    // потерять. Плавающая кнопка остаётся запасным вариантом, если
+    // разметка сборки отличается и панель не нашлась.
     const launcher = el('div', 'ivyph-launcher');
     launcher.title = 'Phone';
     launcher.innerHTML = `<div class="ivyph-launcher-glyph">${icon('device')}</div><span class="ivyph-badge" hidden>0</span>`;
     launcher.addEventListener('click', () => togglePhone());
     document.body.appendChild(launcher);
+    mountInSendForm();
 
     const overlay = el('div', 'ivyph-overlay');
     overlay.hidden = true;
@@ -1664,6 +1715,39 @@ function buildShell() {
     });
 
     ui = { launcher, overlay, screen: overlay.querySelector('.ivyph-screen') };
+}
+
+// Ищем панель рядом с полем ввода и ставим туда кнопку телефона.
+// Разметка у сборок отличается, поэтому перебираем варианты и повторяем
+// попытку несколько раз: панель может появиться позже нашей загрузки.
+let mountTries = 0;
+
+function mountInSendForm() {
+    if (document.getElementById('ivyph_send_btn')) return true;
+
+    const host = document.getElementById('rightSendForm')
+        || document.getElementById('leftSendForm')
+        || document.querySelector('#send_form .send_form_buttons')
+        || document.querySelector('#send_form');
+
+    if (!host) {
+        if (mountTries++ < 20) setTimeout(mountInSendForm, 500);
+        return false;
+    }
+
+    const btn = el('div', 'ivyph-sendbtn interactable');
+    btn.id = 'ivyph_send_btn';
+    btn.title = 'Phone';
+    btn.tabIndex = 0;
+    btn.innerHTML = `${icon('device')}<span class="ivyph-badge" hidden>0</span>`;
+    btn.addEventListener('click', () => togglePhone());
+
+    if (host.id === 'leftSendForm') host.appendChild(btn);
+    else host.prepend(btn);
+
+    document.body.classList.add('ivyph-mounted');
+    render();
+    return true;
 }
 
 function togglePhone(force) {
@@ -1924,10 +2008,12 @@ function render() {
     if (!ui) return;
 
     const n = unreadCount();
-    const badge = ui.launcher.querySelector('.ivyph-badge');
-    badge.hidden = n === 0;
-    badge.textContent = n > 99 ? '99+' : String(n);
+    document.querySelectorAll('.ivyph-badge').forEach(badge => {
+        badge.hidden = n === 0;
+        badge.textContent = n > 99 ? '99+' : String(n);
+    });
     ui.launcher.classList.toggle('ivyph-has-unread', n > 0);
+    document.getElementById('ivyph_send_btn')?.classList.toggle('ivyph-has-unread', n > 0);
 
     if (ui.overlay.hidden) return;
 
@@ -2171,10 +2257,26 @@ function init() {
     } catch { /* необязательно */ }
 
     buildSettingsPanel();
+    buildMenuEntry();
     setInterval(() => { if (ui && !ui.overlay.hidden) ui.overlay.querySelector('.ivyph-clock').textContent = gameClock(); }, 20000);
     setTimeout(() => {
         rebuildFromChat(); syncFromContext(); syncFromLorebook(); pushInjection(); render(); scrubAll();
     }, 800);
+}
+
+// Запасной вход: пункт в меню волшебной палочки рядом с полем ввода.
+// Нужен на случай, если плавающая кнопка окажется за краем экрана
+// или под интерфейсом конкретной сборки таверны.
+function buildMenuEntry() {
+    const menu = document.getElementById('extensionsMenu');
+    if (!menu || document.getElementById('ivyph_menu_item')) return;
+
+    const item = el('div', 'list-group-item flex-container flexGap5 interactable');
+    item.id = 'ivyph_menu_item';
+    item.tabIndex = 0;
+    item.innerHTML = `${icon('device')}<span>Телефон</span>`;
+    item.addEventListener('click', () => togglePhone(true));
+    menu.appendChild(item);
 }
 
 // ---------------------------------------------------------------- config UI
@@ -2191,61 +2293,61 @@ function buildSettingsPanel() {
                 <b>IVY Phone</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <label class="checkbox_label"><input type="checkbox" data-s="enabled"> Enabled</label>
-                <label class="checkbox_label"><input type="checkbox" data-s="hideMarkers"> Hide markers in chat</label>
-                <label class="checkbox_label"><input type="checkbox" data-s="autoOpenOnCall"> Open phone on incoming call</label>
-                <label class="checkbox_label"><input type="checkbox" data-s="autoPhotos"> Generate photos automatically</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="enabled"> Включено</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="hideMarkers"> Прятать маркеры в чате</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="autoOpenOnCall"> Открывать телефон при звонке</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="autoPhotos"> Генерировать фото сразу, без кнопки</label>
 
-                <label>Look
+                <label>Оформление
                     <select class="text_pole" data-s="skin">
-                        <option value="modern">Modern smartphone</option>
+                        <option value="modern">Современный смартфон</option>
                         <option value="iphone4">iPhone 4S (2011)</option>
                         <option value="android">Android</option>
-                        <option value="nokia">Old Nokia</option>
+                        <option value="nokia">Старая Nokia</option>
                     </select>
                 </label>
-                <label class="checkbox_label"><input type="checkbox" data-s="scams"> Spam and scam texts</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="scams"> Спам и мошенники</label>
 
                 <hr>
-                <b>Replies</b>
-                <label>When I send a text from the phone
+                <b>Ответы</b>
+                <label>Когда я пишу из телефона
                     <select class="text_pole" data-s="replyMode">
-                        <option value="phone">Contact answers (separate request)</option>
-                        <option value="chat">Continue the roleplay instead</option>
-                        <option value="none">Do nothing</option>
+                        <option value="phone">Контакт отвечает сам (отдельный запрос)</option>
+                        <option value="chat">Продолжить ролевую обычным ходом</option>
+                        <option value="none">Ничего не делать</option>
                     </select>
                 </label>
-                <label>Connection profile<input class="text_pole" data-s="profile" placeholder="empty = current profile"></label>
-                <label>Context sent to the phone
+                <label>Профиль подключения<input class="text_pole" data-s="profile" placeholder="пусто — текущий профиль"></label>
+                <label>Контекст для телефона
                     <select class="text_pole" data-s="contextMode">
-                        <option value="full">Card, persona and scene</option>
-                        <option value="slice">Recent messages only</option>
+                        <option value="full">Карточка, персона и сцена</option>
+                        <option value="slice">Только последние сообщения</option>
                     </select>
                 </label>
-                <label>Max reply length<input class="text_pole" type="number" data-s="replyLength"></label>
-                <label>Prefill<input class="text_pole" data-s="prefill"></label>
+                <label>Максимальная длина ответа<input class="text_pole" type="number" data-s="replyLength"></label>
+                <label>Префил<input class="text_pole" data-s="prefill"></label>
 
                 <hr>
-                <b>Instruction</b>
-                <label class="checkbox_label"><input type="checkbox" data-s="autoInject"> Inject automatically (no preset editing)</label>
-                <label class="checkbox_label"><input type="checkbox" data-s="compact"> Compact instruction</label>
-                <label>Injection depth<input class="text_pole" type="number" data-s="injectDepth"></label>
+                <b>Инструкция</b>
+                <label class="checkbox_label"><input type="checkbox" data-s="autoInject"> Инжектить автоматически (не править пресет)</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="compact"> Компактная инструкция</label>
+                <label>Глубина инжекта<input class="text_pole" type="number" data-s="injectDepth"></label>
 
                 <hr>
-                <b>Images and clock</b>
-                <label>Image command<input class="text_pole" data-s="imageCommand" placeholder="/sd quiet=true {{prompt}}"></label>
-                <label>In-game time<input class="text_pole" data-s="timeMacro" placeholder="{{getvar::time}}"></label>
-                <label>In-game date<input class="text_pole" data-s="dateMacro" placeholder="{{getvar::date}}"></label>
-                <label>Carrier<input class="text_pole" data-s="carrier"></label>
+                <b>Картинки и часы</b>
+                <label>Команда генерации<input class="text_pole" data-s="imageCommand" placeholder="/sd quiet=true {{prompt}}"></label>
+                <label>Время в игре<input class="text_pole" data-s="timeMacro" placeholder="{{getvar::time}}"></label>
+                <label>Дата в игре<input class="text_pole" data-s="dateMacro" placeholder="{{getvar::date}}"></label>
+                <label>Оператор<input class="text_pole" data-s="carrier"></label>
 
                 <hr>
-                <button class="menu_button" data-report>Show report</button>
+                <button class="menu_button" data-report>Показать отчёт</button>
             </div>
         </div>`;
     host.appendChild(box);
 
     box.querySelector('[data-report]')?.addEventListener('click', () => {
-        const text = debugLog.length ? debugLog.join('\n') : 'No errors logged.';
+        const text = debugLog.length ? debugLog.join('\n') : 'Ошибок не было.';
         alert(text);
     });
 
