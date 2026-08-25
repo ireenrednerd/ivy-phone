@@ -1647,7 +1647,8 @@ async function generatePhoto(ev) {
     if (!ev || ev.state === 'pending') return;
     const s = settings();
     const c = contact(ev.from);
-    const prompt = [c?.anchor, ev.prompt].filter(Boolean).join(', ');
+    const cleanPrompt = stripPanels(ev.prompt).split('\n')[0].trim();
+    const prompt = [c?.anchor, cleanPrompt].filter(Boolean).join(', ');
 
     ev.state = 'pending';
     render();
@@ -1690,13 +1691,24 @@ function logDebug(msg) {
     if (debugLog.length > 40) debugLog.shift();
 }
 
+// UI-панели пресета (HEADER, CROSSROADS, COMMENTS, PSYCHE и т.п.) — это не
+// проза сцены. Вырезаем их, иначе они попадают в промпт картинки и в ответы.
+function stripPanels(text) {
+    return String(text || '')
+        .replace(BLOCK_RE, '')
+        .replace(/[⟦\[]{1,2}[^⟧\]\n]*[⟧\]]{1,2}/g, '')
+        .replace(/^\s*(HEADER|CROSSROADS|COMMENTS|PSYCHE|BODY|VITALITY|RELATIONS|BACKSTAGE|STATE|VARS|GOAL|PLAN)\b.*$/gim, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
 function sceneContext(limit = 6) {
     try {
         const ctx = getContext();
         return (ctx.chat || [])
             .slice(-limit)
-            .map(m => `${m.name}: ${String(m.mes).replace(BLOCK_RE, '').trim()}`)
-            .filter(Boolean)
+            .map(m => `${m.name}: ${stripPanels(m.mes)}`)
+            .filter(l => l.replace(/^[^:]+:\s*/, '').trim())
             .join('\n');
     } catch { return ''; }
 }
@@ -2209,14 +2221,34 @@ function fromMacro(tpl) {
     return out && !out.includes('{{') ? out : '';
 }
 
-// Живой макрос важнее сохранённого маркера: сцена движется, а store().time
-// мог застрять со старым TIME. Маркер — только запасной вариант.
+// Многие пресеты (IVY в том числе) не пишут время в переменную, а печатают
+// его в первую строку ответа — ⟦HEADER|#hex|место|погода|15:15|дата⟧.
+// Читаем оттуда: берём последний хедер в чате и парсим поля.
+function fromHeader() {
+    try {
+        const ctx = getContext();
+        for (let i = (ctx.chat || []).length - 1; i >= 0; i--) {
+            const m = ctx.chat[i];
+            if (!m || m.is_user) continue;
+            const line = String(m.mes || '').split('\n').find(l => /HEADER/i.test(l));
+            if (!line) continue;
+
+            const fields = line.replace(/[⟦⟧\[\]]/g, '').split('|').map(f => f.trim());
+            const time = fields.find(f => /^\d{1,2}:\d{2}$/.test(f)) || '';
+            const date = fields.find(f => /\d{4}/.test(f) && /[a-zA-Zа-яА-Я]/.test(f)) || '';
+            if (time || date) return { time, date };
+        }
+    } catch { /* ignore */ }
+    return { time: '', date: '' };
+}
+
+// Приоритет: макрос из настроек → хедер в чате → сохранённый маркер → часы.
 function gameClock() {
-    return fromMacro(settings().timeMacro) || store().time || clock();
+    return fromMacro(settings().timeMacro) || fromHeader().time || store().time || clock();
 }
 
 function gameDate() {
-    return fromMacro(settings().dateMacro) || store().date || '';
+    return fromMacro(settings().dateMacro) || fromHeader().date || store().date || '';
 }
 
 function stampOf(e) {
@@ -3009,12 +3041,17 @@ async function askForPhoto(k) {
         `Describe the photo ${c.name} would actually take right now, in English, as an image prompt.`,
         `Only the framing: place, light, time of day, angle, what is in frame. No names, no appearance —`,
         `that is added separately. One line, under 200 characters, no quotes, no explanation.`,
+        `Do NOT include any HEADER, CROSSROADS, COMMENTS or other UI panel. Just the plain image description.`,
     ].filter(Boolean).join('\n\n'));
 
     store().typing = '';
 
-    const prompt = String(shot || '').trim().replace(/^["']|["']$/g, '').split('\n')[0];
-    if (!prompt) { logDebug('модель не описала кадр'); render(); return; }
+    let prompt = stripPanels(shot).replace(/^["']|["']$/g, '').split('\n')[0].trim();
+    if (!prompt || /HEADER|CROSSROADS|COMMENTS/i.test(prompt)) {
+        logDebug('модель вернула панель вместо кадра');
+        render();
+        return;
+    }
 
     const ev = addEvent({
         mesId: null, type: 'photo', dir: 'in', from: c.name,
