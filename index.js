@@ -371,6 +371,36 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
     border-bottom-right-radius: 5px;
 }
 
+.ivyph-dstate {
+    font-size: 9.5px;
+    letter-spacing: .04em;
+    opacity: .85;
+}
+
+.ivyph-typing {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 11px 13px;
+    min-width: 52px;
+}
+
+.ivyph-typing i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: .35;
+    animation: ivyph-dots 1.25s ease-in-out infinite;
+}
+
+.ivyph-typing i:nth-child(2) { animation-delay: .18s; }
+.ivyph-typing i:nth-child(3) { animation-delay: .36s; }
+
+@keyframes ivyph-dots {
+    30% { opacity: 1; transform: translateY(-3px); }
+}
+
 .ivyph-photo {
     display: block;
     width: 100%;
@@ -445,6 +475,31 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 }
 
 /* ---------------------------------------------------------- compose */
+
+.ivyph-subhead {
+    padding: 12px 14px 6px;
+    font: 600 10.5px var(--ph-mono);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ph-dim);
+    background: var(--ph-bg);
+}
+
+.ivyph-attach {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--ph-dim);
+    cursor: pointer;
+}
+
+.ivyph-attach:hover { color: var(--ph-text); }
+.ivyph-attach .ivyph-i { width: 19px; height: 19px; vertical-align: 0; }
 
 .ivyph-compose {
     display: flex;
@@ -612,6 +667,12 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
     box-shadow: 0 0 0 0 rgba(176, 74, 59, .5);
     animation: ivyph-ring 1.8s ease-out infinite;
 }
+
+[data-skin] .ivyph-callscreen .ivyph-call-avatar { animation-duration: 1.8s; }
+
+.ivyph-overlay.ivyph-ringing .ivyph-callscreen .ivyph-call-label { animation: ivyph-pulse 2s ease-in-out infinite; }
+
+@keyframes ivyph-pulse { 50% { opacity: .45; } }
 
 @keyframes ivyph-ring {
     70% { box-shadow: 0 0 0 22px rgba(176, 74, 59, 0); }
@@ -1110,6 +1171,10 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 
 /* если кнопка встала в панель — плавающую прячем, чтобы не двоилось */
 body.ivyph-mounted .ivyph-launcher { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+    .ivyph-typing i { animation: none; opacity: .6; }
+}
 `;
 
 function injectStyles() {
@@ -1128,8 +1193,8 @@ const DEFAULTS = {
     replyMode: 'phone',
     autoPhotos: false,
     imageCommand: '/sd quiet=true {{prompt}}',
-    timeMacro: '',
-    dateMacro: '',
+    timeMacro: '{{getvar::clock}}',
+    dateMacro: '{{getvar::date}}',
     profile: '',
     injectDepth: 4,
     autoInject: true,
@@ -1139,6 +1204,9 @@ const DEFAULTS = {
     prefill: '',
     skin: 'modern',
     scams: false,
+    proactive: true,
+    proactiveChance: 12,
+    strangerChance: 15,
     carrier: 'AT&T',
     ownerLabel: 'Я',
 };
@@ -1179,7 +1247,7 @@ function contact(name, patch) {
     const k = keyOf(name);
     if (!k) return null;
     if (!s.contacts[k]) {
-        s.contacts[k] = { key: k, name: String(name).trim(), number: '', handle: '', anchor: '', color: '' };
+        s.contacts[k] = { key: k, name: String(name).trim(), number: '', handle: '', anchor: '', style: '', color: '', avatar: '' };
     }
     if (patch) Object.assign(s.contacts[k], patch);
     return s.contacts[k];
@@ -1204,6 +1272,7 @@ function addEvent(data) {
         dur: '',
         ts: Date.now(),
         stamp: gameClock(),
+        dstate: '',
         read: false,
     }, data);
     if (ev.dir === 'out') ev.read = true;
@@ -1387,6 +1456,8 @@ async function generatePhoto(ev) {
 // карточки. Профиль подключения берётся из настроек: можно поставить
 // модель дешевле основной.
 
+const DSTATE = { sent: ' · sent', delivered: ' · delivered', read: ' · read' };
+
 const REACTIONS = ['\u2764\uFE0F', '\uD83D\uDE02', '\uD83D\uDC4D', '\uD83D\uDE2E', '\uD83D\uDE22', '\uD83D\uDD25'];
 
 const SCAM_POOL = [
@@ -1497,14 +1568,29 @@ async function buildReplyPrompt(c, outgoing) {
         if (lore) parts.push(lore);
     }
     parts.push(`Current scene:\n${scene}`);
+
+    const era = gameDate();
+    if (era) {
+        parts.push(`In-world date: ${era}. Match the messaging conventions of that time — `
+            + `what abbreviations, punctuation and emoji would plausibly exist then.`);
+    }
     if (c.anchor) parts.push(`${c.name}: ${c.anchor}`);
     parts.push(`Text conversation so far:\n${thread}`);
-    parts.push(
-        `Write the next text message from ${c.name} only. ` +
-        `Stay in character, match how they speak out loud. ` +
-        `Plain text under ${s.replyLength} characters, no quotation marks, no narration, no name prefix. ` +
-        `Texting style: short, casual, contractions, occasional typos are fine.`
-    );
+    if (c.style) parts.push(`### How ${c.name} texts\n${c.style}`);
+
+    parts.push([
+        `Write the next text message from ${c.name} only.`,
+        `Their texting voice must come from who they are, not from a generic texting register.`,
+        `Derive it from their age, era, schooling, work, temperament and mood right now:`,
+        `punctuation and capitalisation, sentence length, slang or formality, abbreviations,`,
+        `whether they use emoji at all, whether they double-text or send one careful block,`,
+        `typos or none. A guarded person writes differently from a warm one; someone raised on`,
+        `letters writes differently from someone raised on a keypad. Two contacts must never sound alike.`,
+        `Keep it consistent with how ${c.name} already texted earlier in this thread.`,
+        `Plain text under ${s.replyLength} characters, no quotation marks, no narration, no name prefix.`,
+        `If ${c.name} would realistically not reply right now — angry, asleep, driving, done talking —`,
+        `answer with exactly [silence] and nothing else.`,
+    ].join(' '));
     return parts.filter(Boolean).join('\n\n');
 }
 
@@ -1531,20 +1617,95 @@ async function askModel(prompt) {
     }
 }
 
-async function generateReply(c, outgoing) {
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+async function generateReply(c, outgoing, sentEvent) {
     try {
+        // доставка занимает время, как в жизни
+        if (sentEvent) {
+            await wait(700 + Math.random() * 900);
+            sentEvent.dstate = 'delivered';
+            render();
+            await wait(900 + Math.random() * 2200);
+            sentEvent.dstate = 'read';
+            render();
+        }
+
+        store().typing = c.key;
+        render();
+
         let text = await askModel(await buildReplyPrompt(c, outgoing));
         text = String(text || '').trim().replace(/^["']|["']$/g, '');
-        if (!text) { logDebug(`пустой ответ от ${c.name}`); return; }
+
+        // персонаж может прочитать и не ответить — это тоже ответ
+        if (!text || /^\[?silence\]?$/i.test(text)) {
+            logDebug(`${c.name} прочитал и промолчал`);
+            return;
+        }
+
+        // печатать длинное сообщение дольше
+        await wait(Math.min(600 + text.length * 22, 5200));
 
         addEvent({ mesId: null, type: 'sms', dir: 'in', from: c.name, text });
         save();
         render();
+        pushInjection();
         logDebug(`ответ от ${c.name}: ${text.slice(0, 40)}…`);
     } catch (err) {
         logDebug(`ошибка генерации: ${err?.message || err}`);
         console.error('[IVY Phone]', err);
+    } finally {
+        store().typing = '';
+        render();
     }
+}
+
+// Персонажи иногда пишут первыми. Раз в несколько ходов, с шансом из настроек.
+// Изредка это незнакомый номер — потерянный человек из прошлого, ошибка номером.
+async function maybeProactive() {
+    const s = settings();
+    if (!s.proactive || s.replyMode === 'none') return;
+    if (Math.random() * 100 > (s.proactiveChance || 0)) return;
+
+    const cs = Object.values(store().contacts).filter(c => c.name && !/^\+?[\d\s()-]+$/.test(c.name));
+    const stranger = Math.random() * 100 < (s.strangerChance || 0);
+    if (!cs.length && !stranger) return;
+
+    const scene = sceneContext(6);
+    let who;
+    let brief;
+
+    if (stranger) {
+        who = `+1 ${200 + Math.floor(Math.random() * 700)} 555 0${100 + Math.floor(Math.random() * 899)}`;
+        brief = `Write a single text message to the phone owner from an unknown number: `
+            + `someone from their past, a wrong number, or a stranger who has the wrong idea. `
+            + `It should fit the world and quietly raise a question. No signature, no name.`;
+    } else {
+        const c = cs[Math.floor(Math.random() * cs.length)];
+        who = c.name;
+        brief = (c.style ? `How ${c.name} texts: ${c.style}\n` : '')
+            + `Write a single unprompted text message from ${c.name} to the phone owner. `
+            + `Their punctuation, slang, emoji use and length must follow their character, not a generic texting voice. `
+            + `Something they would send on their own right now — a question, a worry, a small piece of news. `
+            + `It must fit the scene and their voice. Do not reference anything that has not happened.`;
+    }
+
+    const text = await askModel([
+        cardContext(),
+        await lorebookContext(`${scene} ${who}`),
+        `Current scene:\n${scene}`,
+        brief,
+        `Plain text only, under 200 characters, no quotes, no narration, no name prefix.`,
+    ].filter(Boolean).join('\n\n'));
+
+    const clean = String(text || '').trim().replace(/^["']|["']$/g, '');
+    if (!clean || clean.length > 400) return;
+
+    addEvent({ mesId: null, type: 'sms', dir: 'in', from: who, text: clean });
+    save();
+    render();
+    pushInjection();
+    logDebug(`${who} написал сам: ${clean.slice(0, 40)}…`);
 }
 
 // Мошенники: локальный пул, без запросов к модели и без трат токенов.
@@ -1582,10 +1743,30 @@ function instructionText() {
     ].join('\n');
 }
 
+// Сводка последних событий телефона. Уходит в контекст вместе с инструкцией,
+// поэтому персонаж помнит переписку и она влияет на сцену — даже те смс,
+// что были сгенерированы отдельным запросом и в чат не попадали.
+function phoneLog(limit = 10) {
+    const evs = store().events.slice(-limit);
+    if (!evs.length) return '';
+
+    const lines = evs.map(e => {
+        const who = e.dir === 'out' ? 'owner' : e.from;
+        const to = e.dir === 'out' ? `to ${e.from}` : '';
+        if (e.type === 'call') return `[call] ${e.from} — ${e.status}${e.dur ? ` ${e.dur}` : ''}`;
+        if (e.type === 'photo') return `[photo] ${who} ${to} sent a photo${e.text ? `: ${e.text}` : ''}`;
+        if (e.type === 'voice') return `[voice] ${who} ${to} — ${e.dur}`;
+        return `[text] ${who} ${to}: ${e.text}`;
+    });
+
+    return `Recent phone activity (already happened, do not repeat it): ${lines.join(' / ')}`;
+}
+
 async function pushInjection() {
     const s = settings();
     if (!s.autoInject || !s.enabled) return;
-    const flat = instructionText().replace(/\|/g, '\\|').replace(/\n/g, ' / ');
+    const body = [instructionText(), phoneLog()].filter(Boolean).join('\n\n');
+    const flat = body.replace(/\|/g, '\\|').replace(/\n/g, ' / ');
     await runSlash(`/inject id=ivyphone position=chat depth=${s.injectDepth} scan=false ${flat}`);
 }
 
@@ -1891,12 +2072,30 @@ function preview(e) {
 
 function renderHome() {
     const list = threads();
-    if (!list.length) {
+    const started = new Set(list.map(t => t.k));
+    const rest = Object.values(store().contacts).filter(c => !started.has(c.key));
+
+    const restRows = rest.length ? `
+        <div class="ivyph-subhead">Start a new conversation</div>
+        <ul class="ivyph-list">${rest.map(c => `
+            <li class="ivyph-row" data-thread="${esc(c.key)}">
+                ${avatarHtml(c)}
+                <span class="ivyph-row-body">
+                    <span class="ivyph-row-top"><b>${esc(c.name)}</b></span>
+                    <span class="ivyph-row-sub">${esc(c.number || c.handle || 'tap to write')}</span>
+                </span>
+            </li>`).join('')}</ul>` : '';
+
+    if (!list.length && !rest.length) {
         return headTitle('Messages') + `<div class="ivyph-empty">
             ${icon('messageOff')}
             <p>No conversations yet.</p>
-            <small>Messages appear when a character texts you.</small>
+            <small>Add a contact to start writing, or wait for a text.</small>
         </div>`;
+    }
+
+    if (!list.length) {
+        return headTitle('Messages', `<button class="ivyph-icon-btn" data-wand>${icon('wand')}</button>`) + restRows;
     }
     return headTitle('Messages', `<button class="ivyph-icon-btn" data-wand>${icon('wand')}</button>`) + `<ul class="ivyph-list">` + list.map(t => {
         const un = t.list.filter(e => !e.read && e.dir === 'in').length;
@@ -1908,7 +2107,7 @@ function renderHome() {
             </span>
             ${un ? `<span class="ivyph-dot">${un}</span>` : ''}
         </li>`;
-    }).join('') + `</ul>`;
+    }).join('') + `</ul>` + restRows;
 }
 
 function renderThread(k) {
@@ -1943,19 +2142,25 @@ function renderThread(k) {
         const who = c.group && e.dir === 'in'
             ? `<span class="ivyph-who">${esc(e.from)}</span>` : '';
         const react = e.reaction ? `<span class="ivyph-react">${esc(e.reaction)}</span>` : '';
+        const dstate = e.dir === 'out' && e.dstate
+            ? `<span class="ivyph-dstate">${esc(DSTATE[e.dstate] || e.dstate)}</span>` : '';
         const picker = screen.react === e.id
             ? `<span class="ivyph-picker">${REACTIONS.map(r => `<button data-react="${esc(e.id)}" data-emoji="${r}">${r}</button>`).join('')}</span>`
             : '';
-        return `<div class="ivyph-bub ivyph-${e.dir}${e.scam ? ' ivyph-scam' : ''}" data-ev="${esc(e.id)}">${who}${inner}<time>${esc(stampOf(e))}</time>${react}</div>${picker}`;
+        return `<div class="ivyph-bub ivyph-${e.dir}${e.scam ? ' ivyph-scam' : ''}" data-ev="${esc(e.id)}">${who}${inner}<time>${esc(stampOf(e))}${dstate}</time>${react}</div>${picker}`;
     }).join('');
+
+    const typing = store().typing === k
+        ? `<div class="ivyph-bub ivyph-in ivyph-typing"><i></i><i></i><i></i></div>` : '';
 
     return `<div class="ivyph-head ivyph-head-nav">
             <button class="ivyph-back" data-go="home">${icon('chevronLeft')}</button>
             <span class="ivyph-title">${esc(c.name)}${c.group ? `<small>${esc(c.members.join(', '))}</small>` : ''}</span>
             <button class="ivyph-icon-btn" data-card="${esc(keyOf(k))}">${icon('info')}</button>
         </div>
-        <div class="ivyph-thread">${bubbles}</div>
+        <div class="ivyph-thread">${bubbles}${typing}</div>
         <div class="ivyph-compose">
+            <button class="ivyph-attach" data-attach="${esc(k)}">${icon('image')}</button>
             <textarea rows="1" placeholder="Message ${esc(c.name)}…"></textarea>
             <button class="ivyph-send" data-send="${esc(keyOf(k))}">${icon('arrowUp')}</button>
         </div>`;
@@ -1986,11 +2191,20 @@ function renderCard(k) {
             <span>${isNew ? 'New contact' : esc(c.name)}</span>
         </div>
         <div class="ivyph-form" data-key="${esc(isNew ? '' : c.key)}">
-            <label>Name<input data-f="name" value="${esc(c.name)}" placeholder="Cody Johnson"></label>
-            <label>Number<input data-f="number" value="${esc(c.number)}" placeholder="+1 206 555 0114"></label>
-            <label>Handle<input data-f="handle" value="${esc(c.handle)}" placeholder="@codyj"></label>
+            <label>Name<input data-f="name" value="${esc(c.name)}" placeholder="John Doe"></label>
+            <label>Number<input data-f="number" value="${esc(c.number)}" placeholder="+1 555 0100"></label>
+            <label>Handle<input data-f="handle" value="${esc(c.handle)}" placeholder="@handle"></label>
             <label>Appearance anchor<textarea data-f="anchor" rows="3" placeholder="Used when generating photos">${esc(c.anchor)}</textarea></label>
+            <label>Texting style<textarea data-f="style" rows="3" placeholder="lowercase, no punctuation, never uses emoji, one-word replies">${esc(c.style || '')}</textarea></label>
             <label>Color<input type="color" data-f="color" value="${esc(c.color || '#3d4a55')}"></label>
+            <label>Photo
+                <span class="ivyph-avatar-pick">
+                    ${avatarHtml(c, 'ivyph-avatar ivyph-avatar-lg')}
+                    <button class="ivyph-mini" data-pick-photo>Choose…</button>
+                    ${c.avatar ? '<button class="ivyph-mini ivyph-mini-off" data-drop-photo>Remove</button>' : ''}
+                </span>
+                <input type="hidden" data-f="avatar" value="${esc(c.avatar || '')}">
+            </label>
             ${isNew ? '' : `<div class="ivyph-quick">
                 <button class="ivyph-quick-btn" data-open-thread="${esc(c.key)}">${icon('message')}<span>Message</span></button>
                 <button class="ivyph-quick-btn" data-place-call="${esc(c.key)}">${icon('phone')}<span>Call</span></button>
@@ -1998,6 +2212,20 @@ function renderCard(k) {
             <div class="ivyph-form-actions">
                 <button class="ivyph-primary" data-save-card>Save</button>
                 ${isNew ? '' : '<button class="ivyph-danger" data-del-card>Delete</button>'}
+            </div>
+        </div>`;
+}
+
+function renderDialing(id) {
+    const ev = store().events.find(e => e.id === id);
+    const c = contact(ev?.from) || { name: ev?.from || '' };
+    return `<div class="ivyph-callscreen">
+            <div class="ivyph-call-label">calling…</div>
+            ${avatarHtml(c, 'ivyph-call-avatar')}
+            <div class="ivyph-call-name">${esc(c.name)}</div>
+            <div class="ivyph-call-number">${esc(c.number || 'number withheld')}</div>
+            <div class="ivyph-call-actions">
+                <button class="ivyph-call-btn ivyph-decline" data-hangup="${esc(id)}"><span class="ivyph-call-circle">${icon('phoneOff')}</span><span>Hang up</span></button>
             </div>
         </div>`;
 }
@@ -2033,7 +2261,9 @@ async function conjureThread(key) {
         await lorebookContext(`${scene} ${c.name}`),
         `Current scene:\n${scene}`,
         c.anchor ? `${c.name}: ${c.anchor}` : '',
+        c.style ? `How ${c.name} texts: ${c.style}` : '',
         `Write a short text conversation between the phone owner and ${c.name} that fits the scene above.`,
+        `${c.name} must sound like themselves — punctuation, slang, emoji use and message length all follow their character, not a generic texting voice.`,
         `Six to ten messages. One per line. Prefix each line with "IN:" for ${c.name} and "OUT:" for the owner.`,
         `No narration, no quotes, no timestamps. Casual texting voice.`,
     ].filter(Boolean).join('\n\n');
@@ -2057,7 +2287,10 @@ async function conjureThread(key) {
 function renderLog() {
     const calls = store().events.filter(e => e.type === 'call').slice().reverse();
     if (!calls.length) return `<div class="ivyph-empty">${icon('phoneOff')}<p>No calls yet.</p></div>`;
-    const glyph = { missed: 'phoneOff', declined: 'phoneOff', incoming: 'arrowDown', outgoing: 'arrowUp' };
+    const glyph = {
+        missed: 'phoneOff', declined: 'phoneOff', noanswer: 'phoneOff',
+        incoming: 'arrowDown', outgoing: 'arrowUp', dialing: 'arrowUp',
+    };
     return headTitle('Calls') + `<ul class="ivyph-list">` + calls.map(e => `
         <li class="ivyph-row ivyph-call-row ${e.status === 'missed' || e.status === 'declined' ? 'ivyph-missed' : ''}">
             ${avatarHtml(contact(e.from) || { name: e.from })}
@@ -2077,7 +2310,10 @@ function headTitle(title, extra = '') {
 }
 
 function statusWord(e) {
-    const map = { incoming: 'Incoming', outgoing: 'Outgoing', missed: 'Missed', declined: 'Declined', answered: 'Answered', ended: 'Ended' };
+    const map = {
+        incoming: 'Incoming', outgoing: 'Outgoing', missed: 'Missed', declined: 'Declined',
+        answered: 'Answered', ended: 'Ended', dialing: 'Dialing', noanswer: 'No answer',
+    };
     return (map[e.status] || e.status) + (e.dur ? ` · ${e.dur}` : '');
 }
 
@@ -2122,9 +2358,10 @@ function render() {
     else if (screen.name === 'card') html = renderCard(screen.arg);
     else if (screen.name === 'log') html = renderLog();
     else if (screen.name === 'conjure') html = renderConjure();
+    else if (screen.name === 'dialing') html = renderDialing(screen.arg);
     else html = renderHome();
 
-    ui.overlay.classList.toggle('ivyph-ringing', !!ringing);
+    ui.overlay.classList.toggle('ivyph-ringing', !!ringing || screen.name === 'dialing');
     ui.screen.innerHTML = html;
     wire();
 
@@ -2181,12 +2418,31 @@ function wire() {
         render();
     }));
 
+    s.querySelectorAll('[data-hangup]').forEach(n => n.addEventListener('click', () => {
+        const ev = store().events.find(x => x.id === n.dataset.hangup);
+        if (ev && ev.status === 'dialing') ev.status = 'ended';
+        save();
+        go('log');
+    }));
+
     const wand = s.querySelector('[data-wand]');
     if (wand) wand.addEventListener('click', () => go('conjure'));
 
     s.querySelectorAll('[data-conjure]').forEach(n => n.addEventListener('click', () => {
         conjureThread(n.dataset.conjure);
     }));
+
+    const attach = s.querySelector('[data-attach]');
+    if (attach) attach.addEventListener('click', () => {
+        const file = document.createElement('input');
+        file.type = 'file';
+        file.accept = 'image/*';
+        file.addEventListener('change', async () => {
+            const f = file.files?.[0];
+            if (f) await sendPhotoFromPhone(attach.dataset.attach, f);
+        });
+        file.click();
+    });
 
     s.querySelectorAll('[data-open-thread]').forEach(n =>
         n.addEventListener('click', () => go('thread', n.dataset.openThread)));
@@ -2285,18 +2541,39 @@ async function pushToChat(marker) {
     return ctx.chat.length - 1;
 }
 
+// Своя картинка из галереи: ужимаем до 512px и кладём в переписку.
+// В чат уходит маркер с подписью, чтобы персонаж знал, что ему прислали фото.
+async function sendPhotoFromPhone(k, file) {
+    const c = contact(k.replace(/^g:/, '')) || { name: k };
+    let url = '';
+    try {
+        url = await shrinkImage(file, 512);
+    } catch (err) {
+        logDebug(`картинка не загрузилась: ${err?.message || err}`);
+        return;
+    }
+
+    const mesId = await pushToChat(`[PHONE]\nPHOTO|${c.name}|a photo the owner took|sent a photo|out\n[/PHONE]`);
+    addEvent({ mesId, type: 'photo', dir: 'out', from: c.name, image: url, state: 'done', text: '' });
+    save();
+    render();
+}
+
 async function sendFromPhone(k, text) {
     const c = contact(k) || { name: k };
     const group = store().groups[keyOf(k.replace(/^g:/, ''))];
     const target = group ? `${settings().ownerLabel}@${group.name}` : c.name;
     const mesId = await pushToChat(`[PHONE]\nSMS|${target}|${text}|out\n[/PHONE]`);
 
-    addEvent({ mesId, type: 'sms', dir: 'out', from: c.name, group: group?.name || '', text });
+    const sent = addEvent({
+        mesId, type: 'sms', dir: 'out', from: c.name,
+        group: group?.name || '', text, dstate: 'sent',
+    });
     save();
     render();
 
     const mode = settings().replyMode;
-    if (mode === 'phone') await generateReply(c, text);
+    if (mode === 'phone') await generateReply(c, text, sent);
     else if (mode === 'chat') await runSlash('/trigger');
 }
 
@@ -2306,12 +2583,42 @@ async function placeCall(key) {
     const c = contact(key);
     if (!c) return;
 
-    addEvent({ mesId: null, type: 'call', dir: 'out', from: c.name, status: 'outgoing', read: true });
+    const ev = addEvent({
+        mesId: null, type: 'call', dir: 'out', from: c.name,
+        status: 'dialing', read: true,
+    });
     save();
-    go('log');
+    go('dialing', ev.id);
 
     await pushToChat(`[PHONE]\nCALL|${c.name}|outgoing\n[/PHONE]`);
-    if (settings().replyMode === 'chat') await runSlash('/trigger');
+
+    // сколько гудков — тоже часть сцены
+    await wait(2600 + Math.random() * 3400);
+
+    let verdict = 'noanswer';
+    if (settings().replyMode === 'phone') {
+        const scene = sceneContext(6);
+        const answer = await askModel([
+            cardContext(),
+            await lorebookContext(`${scene} ${c.name}`),
+            `Current scene:\n${scene}`,
+            `The phone owner is calling ${c.name} right now.`,
+            `Decide what ${c.name} does. Answer with exactly one word: answered, declined, or noanswer.`,
+            `Consider where they are and how things stand between them.`,
+        ].filter(Boolean).join('\n\n'));
+
+        const word = String(answer || '').toLowerCase();
+        if (word.includes('answer') && !word.includes('noanswer')) verdict = 'answered';
+        else if (word.includes('declin')) verdict = 'declined';
+    }
+
+    ev.status = verdict;
+    if (verdict === 'answered') ev.dur = `${Math.floor(1 + Math.random() * 8)}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`;
+    save();
+    go('log');
+    pushInjection();
+
+    if (verdict === 'answered' && settings().replyMode !== 'none') await runSlash('/trigger');
 }
 
 // ---------------------------------------------------------------- events
@@ -2324,7 +2631,12 @@ function ingest(mesId) {
 
     purgeMessage(mesId);
     const made = parseBlocks(msg.mes, mesId);
-    if (!made.length) return;
+
+    if (!made.length) {
+        maybeScam();
+        maybeProactive();
+        return;
+    }
 
     save();
     render();
@@ -2333,6 +2645,7 @@ function ingest(mesId) {
     if (settings().autoPhotos) made.filter(e => e.type === 'photo').forEach(generatePhoto);
 
     maybeScam();
+    maybeProactive();
 
     const call = made.find(e => e.type === 'call' && e.status === 'incoming');
     if (call && settings().autoOpenOnCall) togglePhone(true);
@@ -2424,6 +2737,9 @@ function buildSettingsPanel() {
                     </select>
                 </label>
                 <label class="checkbox_label"><input type="checkbox" data-s="scams"> Спам и мошенники</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="proactive"> Контакты пишут сами</label>
+                <label>Шанс, что напишут (%)<input class="text_pole" type="number" data-s="proactiveChance"></label>
+                <label>Из них незнакомый номер (%)<input class="text_pole" type="number" data-s="strangerChance"></label>
 
                 <hr>
                 <b>Ответы</b>
