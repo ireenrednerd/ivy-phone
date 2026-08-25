@@ -93,6 +93,9 @@
 .ivyph-overlay {
     position: fixed !important;
     inset: 0 !important;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
     z-index: 100000;
     display: flex;
     align-items: center;
@@ -643,11 +646,14 @@
 
 /* ---------------------------------------------------------- mobile */
 
-@media (max-width: 520px) {
+@media (max-width: 900px) {
     .ivyph-device {
+        position: fixed;
+        inset: 0;
         width: 100vw;
         height: 100vh;
         height: 100dvh;
+        max-width: none;
         max-height: none;
         border-radius: 0;
         border: 0;

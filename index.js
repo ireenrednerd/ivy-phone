@@ -104,6 +104,9 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 .ivyph-overlay {
     position: fixed !important;
     inset: 0 !important;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
     z-index: 100000;
     display: flex;
     align-items: center;
@@ -654,11 +657,14 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 
 /* ---------------------------------------------------------- mobile */
 
-@media (max-width: 520px) {
+@media (max-width: 900px) {
     .ivyph-device {
+        position: fixed;
+        inset: 0;
         width: 100vw;
         height: 100vh;
         height: 100dvh;
+        max-width: none;
         max-height: none;
         border-radius: 0;
         border: 0;
@@ -1706,7 +1712,7 @@ function buildShell() {
                 <button class="ivyph-dock-btn" data-go="log">${icon('phone')}<span>Calls</span></button>
             </div>
         </div>`;
-    document.body.appendChild(overlay);
+    (document.documentElement || document.body).appendChild(overlay);
 
     overlay.querySelector('.ivyph-scrim').addEventListener('click', () => togglePhone(false));
     overlay.querySelector('.ivyph-close').addEventListener('click', () => togglePhone(false));
