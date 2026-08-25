@@ -1600,6 +1600,9 @@ async function generateViaTag(ev, prompt) {
     const ctx = getContext();
     const tag = settings().imageTag.replace('{{prompt}}', prompt.replace(/"/g, "'"));
 
+    // Носитель тега — ОБЫЧНОЕ сообщение персонажа. sillyimages сканирует
+    // только видимые ответы, поэтому не помечаем его системным и не прячем
+    // визуально, пока картинка не готова: иначе расширение его пропустит.
     const carrier = {
         name: ctx.name2 || 'Phone',
         is_user: false,
@@ -1613,33 +1616,43 @@ async function generateViaTag(ev, prompt) {
     await ctx.saveChat();
     const idx = ctx.chat.length - 1;
 
-    for (let i = 0; i < 90; i++) {
+    // подтолкнём: некоторые сборки sillyimages ловят по событию рендера
+    try { eventSource.emit(event_types.MESSAGE_RECEIVED, idx); } catch { /* ignore */ }
+    try { eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, idx); } catch { /* ignore */ }
+
+    // ждём подмены [IMG:GEN] на реальный путь — до 3 минут
+    for (let i = 0; i < 180; i++) {
         await wait(1000);
-        const src = String(ctx.chat[idx]?.mes || '').match(/<img[^>]+src=["']([^"']+)["']/i)?.[1];
-        if (src && !/IMG:GEN/i.test(src)) {
+        const body = String(ctx.chat[idx]?.mes || '');
+        const src = body.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1];
+
+        if (src && !/IMG:GEN/i.test(src) && !/error\.svg/i.test(src)) {
             ev.image = src;
             ev.state = 'done';
-            hideCarrier(idx);
+            removeCarrier(idx);
             return true;
         }
-        if (/error\.svg/i.test(String(ctx.chat[idx]?.mes || ''))) break;
+        if (/error\.svg/i.test(body)) {
+            const why = body.match(/title=["']([^"']+)["']/i)?.[1] || 'unknown';
+            logDebug(`sillyimages: ${why}`);
+            break;
+        }
     }
 
-    hideCarrier(idx);
+    removeCarrier(idx);
     return false;
 }
 
-// Служебное сообщение прячем: помечаем системным, чтобы оно не попало
-// в промпт, и убираем из ленты.
-async function hideCarrier(idx) {
+// Убираем носитель из чата целиком после того, как картинка забрана
+// (или не пришла). Именно удаляем, а не оставляем пустой системный след.
+async function removeCarrier(idx) {
     try {
         const ctx = getContext();
-        const m = ctx.chat[idx];
-        if (!m) return;
-        m.is_system = true;
-        m.mes = '';
-        await ctx.saveChat();
-        document.querySelector(`#chat .mes[mesid="${idx}"]`)?.style.setProperty('display', 'none', 'important');
+        if (ctx.chat[idx]?.extra?.ivyph_carrier) {
+            ctx.chat.splice(idx, 1);
+            await ctx.saveChat();
+            document.querySelector(`#chat .mes[mesid="${idx}"]`)?.remove();
+        }
     } catch { /* не критично */ }
 }
 
