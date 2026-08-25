@@ -2242,19 +2242,45 @@ function fromMacro(tpl) {
 // Многие пресеты (IVY в том числе) не пишут время в переменную, а печатают
 // его в первую строку ответа — ⟦HEADER|#hex|место|погода|15:15|дата⟧.
 // Читаем оттуда: берём последний хедер в чате и парсим поля.
+// Время и дата из хедера пресета. Ищем не по слову HEADER (его мог вырезать
+// регекс "прятать маркеры"), а по самой форме: строка с несколькими полями
+// через | , где есть время HH:MM и год. Читаем оригинал сообщения, а не
+// почищенный DOM.
 function fromHeader() {
     try {
         const ctx = getContext();
         for (let i = (ctx.chat || []).length - 1; i >= 0; i--) {
             const m = ctx.chat[i];
             if (!m || m.is_user) continue;
-            const line = String(m.mes || '').split('\n').find(l => /HEADER/i.test(l));
-            if (!line) continue;
+            const raw = String(m.mes || '');
 
-            const fields = line.replace(/[⟦⟧\[\]]/g, '').split('|').map(f => f.trim());
-            const time = fields.find(f => /^\d{1,2}:\d{2}$/.test(f)) || '';
-            const date = fields.find(f => /\d{4}/.test(f) && /[a-zA-Zа-яА-Я]/.test(f)) || '';
-            if (time || date) return { time, date };
+            // все строки-кандидаты: с HEADER или просто с несколькими | и временем
+            const cand = raw.split('\n').filter(l =>
+                /HEADER/i.test(l) || (l.split('|').length >= 3 && /\d{1,2}:\d{2}/.test(l))
+            );
+
+            for (const line of cand) {
+                const fields = line
+                    .replace(/[⟦⟧\[\]『』【】]/g, '')
+                    .replace(/^\s*HEADER\s*\|?/i, '')
+                    .split('|')
+                    .map(f => f.trim());
+
+                const time = (fields.find(f => /^\d{1,2}:\d{2}$/.test(f))
+                    || (line.match(/\b(\d{1,2}:\d{2})\b/) || [])[1] || '');
+                const date = fields.find(f => /\d{4}/.test(f) && /[a-zA-Zа-яА-Яёіїєґ]/i.test(f)) || '';
+
+                if (time || date) return { time, date };
+            }
+        }
+
+        // запасной путь: последнее HH:MM где угодно в свежих сообщениях
+        for (let i = (ctx.chat || []).length - 1, seen = 0; i >= 0 && seen < 6; i--) {
+            const m = ctx.chat[i];
+            if (!m || m.is_user) continue;
+            seen++;
+            const t = (String(m.mes || '').match(/\b(\d{1,2}:\d{2})\b/) || [])[1];
+            if (t) return { time: t, date: '' };
         }
     } catch { /* ignore */ }
     return { time: '', date: '' };
