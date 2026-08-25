@@ -202,6 +202,13 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 
 .ivyph-head-nav { justify-content: space-between; }
 
+.ivyph-head-tools { display: flex; align-items: center; gap: 2px; }
+
+.ivyph-head-tools [data-wipe] { color: #a3655a; }
+.ivyph-head-tools [data-wipe]:hover { color: #c9695b; }
+
+.ivyph-row [data-del-group] { flex: none; color: #a3655a; }
+
 .ivyph-title {
     display: flex;
     flex-direction: column;
@@ -1242,12 +1249,67 @@ function keyOf(name) {
     return String(name || '').trim().toLowerCase();
 }
 
+// «Cody» из смс и «Cody Johnson» из карточки — один и тот же человек.
+// Ищем уже заведённый контакт по первому слову имени, иначе плодятся дубли.
+function looksLikeNumber(s) {
+    return /^\+?[\d\s()\-]+$/.test(String(s || '').trim());
+}
+
+function resolveKey(name) {
+    const k = keyOf(name);
+    if (!k) return k;
+    const cs = store().contacts;
+    if (cs[k]) return k;
+    if (looksLikeNumber(name)) return k;
+
+    const first = k.split(/\s+/)[0];
+    for (const key of Object.keys(cs)) {
+        if (looksLikeNumber(key)) continue;
+        const keyFirst = key.split(/\s+/)[0];
+        if (keyFirst === first && (key.startsWith(k) || k.startsWith(key))) return key;
+    }
+    return k;
+}
+
+// Слияние уже накопившихся дублей: данные объединяем, переписку переносим.
+function mergeDuplicates() {
+    const s = store();
+    let changed = false;
+
+    for (const key of Object.keys(s.contacts)) {
+        const target = resolveKey(s.contacts[key].name);
+        if (target === key || !s.contacts[target]) continue;
+
+        const from = s.contacts[key];
+        const into = s.contacts[target];
+        ['number', 'handle', 'anchor', 'style', 'avatar', 'color'].forEach(f => {
+            if (!into[f] && from[f]) into[f] = from[f];
+        });
+        if (from.name.length > into.name.length) into.name = from.name;
+
+        s.events.forEach(e => { if (keyOf(e.from) === key) e.from = into.name; });
+        delete s.contacts[key];
+        changed = true;
+    }
+
+    if (changed) { save(); render(); }
+}
+
 function contact(name, patch) {
     const s = store();
-    const k = keyOf(name);
+    const k = resolveKey(name);
     if (!k) return null;
+
+    // пришло более полное имя — обновляем, ключ оставляем прежним
+    if (s.contacts[k] && String(name).trim().length > s.contacts[k].name.length) {
+        s.contacts[k].name = String(name).trim();
+    }
+
     if (!s.contacts[k]) {
-        s.contacts[k] = { key: k, name: String(name).trim(), number: '', handle: '', anchor: '', style: '', color: '', avatar: '' };
+        s.contacts[k] = {
+            key: k, name: String(name).trim(), label: '', lore: '',
+            number: '', handle: '', anchor: '', style: '', color: '', avatar: '',
+        };
     }
     if (patch) Object.assign(s.contacts[k], patch);
     return s.contacts[k];
@@ -1521,10 +1583,17 @@ function cardContext() {
         }
 
         // точные имена и номера, чтобы модель не выдумывала фамилии
-        const known = Object.values(store().contacts)
-            .map(c => `${c.name}${c.number ? ` (${c.number})` : ''}`)
-            .join(', ');
-        if (known) bits.push(`### Contacts in this phone\n${known}\nUse these exact names. Do not invent surnames or relatives.`);
+        const known = Object.values(store().contacts).map(c => {
+            const parts = [c.name];
+            if (c.number) parts.push(`(${c.number})`);
+            if (c.lore) parts.push(`— ${c.lore}`);
+            return parts.join(' ');
+        }).join('\n');
+
+        if (known) {
+            bits.push(`### Contacts in this phone\n${known}\n`
+                + `Use these exact names and these relationships. Do not invent surnames or relatives.`);
+        }
 
         return bits.join('\n\n');
     } catch { return ''; }
@@ -1564,7 +1633,8 @@ async function buildReplyPrompt(c, outgoing) {
     if (s.contextMode === 'full') {
         const card = cardContext();
         if (card) parts.push(card);
-        const lore = await lorebookContext(`${scene}\n${thread}\n${c.name} ${outgoing || ''}`);
+        const lore = await lorebookContext(
+            `${scene}\n${thread}\n${c.name} ${c.lore || ''} ${outgoing || ''}`);
         if (lore) parts.push(lore);
     }
     parts.push(`Current scene:\n${scene}`);
@@ -1576,6 +1646,7 @@ async function buildReplyPrompt(c, outgoing) {
     }
     if (c.anchor) parts.push(`${c.name}: ${c.anchor}`);
     parts.push(`Text conversation so far:\n${thread}`);
+    if (c.lore) parts.push(`### Who ${c.name} is\n${c.lore}`);
     if (c.style) parts.push(`### How ${c.name} texts\n${c.style}`);
 
     parts.push([
@@ -1683,7 +1754,8 @@ async function maybeProactive() {
     } else {
         const c = cs[Math.floor(Math.random() * cs.length)];
         who = c.name;
-        brief = (c.style ? `How ${c.name} texts: ${c.style}\n` : '')
+        brief = (c.lore ? `Who ${c.name} is: ${c.lore}\n` : '')
+            + (c.style ? `How ${c.name} texts: ${c.style}\n` : '')
             + `Write a single unprompted text message from ${c.name} to the phone owner. `
             + `Their punctuation, slang, emoji use and length must follow their character, not a generic texting voice. `
             + `Something they would send on their own right now — a question, a worry, a small piece of news. `
@@ -1798,6 +1870,7 @@ const ICONS = {
     battery: '<rect x="1.5" y="7.5" width="17.5" height="9" rx="2.6" stroke-width="1.6"/><path d="M21.3 10.6v2.8" stroke-width="2.2"/><rect x="3.4" y="9.4" width="10.5" height="5.2" rx="1.4" fill="currentColor" stroke="none"/>',
     image: '<rect x="3" y="4.5" width="18" height="15" rx="2.4"/><circle cx="8.6" cy="9.8" r="1.7"/><path d="M3.4 17.2 8.9 12l4 3.6 3.2-2.6 4.5 4.2"/>',
     refresh: '<path d="M20.2 11.4a8.3 8.3 0 1 1-2.4-5.6"/><polyline points="20.6,3.6 20.6,9 15.2,9"/>',
+    trash: '<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.8h5v1.7"/><path d="M6.4 6.5 7.3 20h9.4l.9-13.5"/><path d="M10.3 10v6M13.7 10v6"/>',
     wand: '<path d="M4.5 19.5 15 9"/><path d="M14 5.5 15.4 7 17 5.6 15.6 4.2Z"/><path d="M18.5 9.5v2.6M17.2 10.8h2.6M6.5 3.4v2M5.2 4.4h2.6"/>',
     chevronLeft: '<polyline points="14.5,4.8 8,12 14.5,19.2"/>',
     info: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="11.2" x2="12" y2="16.6"/><circle cx="12" cy="7.7" r="1" fill="currentColor" stroke="none"/>',
@@ -1902,6 +1975,12 @@ function el(tag, cls, html) {
     if (cls) n.className = cls;
     if (html !== undefined) n.innerHTML = html;
     return n;
+}
+
+// Как контакт подписан в телефоне. Видно только тебе: в запросы к модели
+// и в сводку для контекста всегда уходит настоящее имя из поля name.
+function shown(c) {
+    return (c?.label || '').trim() || c?.name || '';
 }
 
 function avatarHtml(c, cls = 'ivyph-avatar') {
@@ -2035,7 +2114,7 @@ function go(name, arg) {
 // ---------------------------------------------------------------- screens
 
 function threadKey(e) {
-    return e.group ? `g:${keyOf(e.group)}` : keyOf(e.from);
+    return e.group ? `g:${keyOf(e.group)}` : resolveKey(e.from);
 }
 
 function threadHead(k, list) {
@@ -2081,7 +2160,7 @@ function renderHome() {
             <li class="ivyph-row" data-thread="${esc(c.key)}">
                 ${avatarHtml(c)}
                 <span class="ivyph-row-body">
-                    <span class="ivyph-row-top"><b>${esc(c.name)}</b></span>
+                    <span class="ivyph-row-top"><b>${esc(shown(c))}</b></span>
                     <span class="ivyph-row-sub">${esc(c.number || c.handle || 'tap to write')}</span>
                 </span>
             </li>`).join('')}</ul>` : '';
@@ -2102,7 +2181,7 @@ function renderHome() {
         return `<li class="ivyph-row" data-thread="${esc(t.k)}">
             ${avatarHtml(t.c)}
             <span class="ivyph-row-body">
-                <span class="ivyph-row-top"><b>${esc(t.c?.name || t.k)}</b><time>${esc(stampOf(t.last))}</time></span>
+                <span class="ivyph-row-top"><b>${esc(shown(t.c) || t.k)}</b><time>${esc(stampOf(t.last))}</time></span>
                 <span class="ivyph-row-sub">${esc(preview(t.last))}</span>
             </span>
             ${un ? `<span class="ivyph-dot">${un}</span>` : ''}
@@ -2155,13 +2234,16 @@ function renderThread(k) {
 
     return `<div class="ivyph-head ivyph-head-nav">
             <button class="ivyph-back" data-go="home">${icon('chevronLeft')}</button>
-            <span class="ivyph-title">${esc(c.name)}${c.group ? `<small>${esc(c.members.join(', '))}</small>` : ''}</span>
-            <button class="ivyph-icon-btn" data-card="${esc(keyOf(k))}">${icon('info')}</button>
+            <span class="ivyph-title">${esc(shown(c))}${c.group ? `<small>${esc(c.members.join(', '))}</small>` : ''}</span>
+            <span class="ivyph-head-tools">
+                <button class="ivyph-icon-btn" data-wipe="${esc(k)}">${icon('trash')}</button>
+                <button class="ivyph-icon-btn" data-card="${esc(keyOf(k))}">${icon('info')}</button>
+            </span>
         </div>
         <div class="ivyph-thread">${bubbles}${typing}</div>
         <div class="ivyph-compose">
             <button class="ivyph-attach" data-attach="${esc(k)}">${icon('image')}</button>
-            <textarea rows="1" placeholder="Message ${esc(c.name)}…"></textarea>
+            <textarea rows="1" placeholder="Message ${esc(shown(c))}…"></textarea>
             <button class="ivyph-send" data-send="${esc(keyOf(k))}">${icon('arrowUp')}</button>
         </div>`;
 }
@@ -2171,16 +2253,26 @@ function renderContacts() {
     const rows = cs.length ? cs.map(c => `<li class="ivyph-row" data-card="${esc(c.key)}">
             ${avatarHtml(c)}
             <span class="ivyph-row-body">
-                <span class="ivyph-row-top"><b>${esc(c.name)}</b></span>
+                <span class="ivyph-row-top"><b>${esc(shown(c))}</b></span>
                 <span class="ivyph-row-sub">${esc(c.number || c.handle || 'no number saved')}</span>
             </span>
         </li>`).join('') : `<li class="ivyph-empty-row">No contacts yet.</li>`;
+
+    const groupRows = Object.values(store().groups).map(g => `
+        <li class="ivyph-row">
+            <span class="ivyph-avatar" style="--tint:#4a6355">${esc(g.name[0].toUpperCase())}</span>
+            <span class="ivyph-row-body">
+                <span class="ivyph-row-top"><b>${esc(g.name)}</b></span>
+                <span class="ivyph-row-sub">${esc(g.members.join(', ') || 'group')}</span>
+            </span>
+            <button class="ivyph-icon-btn" data-del-group="${esc(g.key)}">${icon('trash')}</button>
+        </li>`).join('');
 
     return `<div class="ivyph-head ivyph-head-nav">
             <span>Contacts</span>
             <button class="ivyph-icon-btn" data-card="__new__">${icon('plus')}</button>
         </div>
-        <ul class="ivyph-list">${rows}</ul>`;
+        <ul class="ivyph-list">${rows}${groupRows}</ul>`;
 }
 
 function renderCard(k) {
@@ -2188,10 +2280,12 @@ function renderCard(k) {
     const c = isNew ? { name: '', number: '', handle: '', anchor: '', color: '#3d4a55' } : (contact(k) || {});
     return `<div class="ivyph-head ivyph-head-nav">
             <button class="ivyph-back" data-go="contacts">${icon('chevronLeft')}</button>
-            <span>${isNew ? 'New contact' : esc(c.name)}</span>
+            <span>${isNew ? 'New contact' : esc(shown(c))}</span>
         </div>
         <div class="ivyph-form" data-key="${esc(isNew ? '' : c.key)}">
-            <label>Name<input data-f="name" value="${esc(c.name)}" placeholder="John Doe"></label>
+            <label>Name (used by the model)<input data-f="name" value="${esc(c.name)}" placeholder="John Doe"></label>
+            <label>Display as (only you see this)<input data-f="label" value="${esc(c.label || '')}" placeholder="Johnny ♥"></label>
+            <label>Who they are in the lore<textarea data-f="lore" rows="3" placeholder="Alice's ex, runs the garage on Pike, brother of Sadie">${esc(c.lore || '')}</textarea></label>
             <label>Number<input data-f="number" value="${esc(c.number)}" placeholder="+1 555 0100"></label>
             <label>Handle<input data-f="handle" value="${esc(c.handle)}" placeholder="@handle"></label>
             <label>Appearance anchor<textarea data-f="anchor" rows="3" placeholder="Used when generating photos">${esc(c.anchor)}</textarea></label>
@@ -2222,7 +2316,7 @@ function renderDialing(id) {
     return `<div class="ivyph-callscreen">
             <div class="ivyph-call-label">calling…</div>
             ${avatarHtml(c, 'ivyph-call-avatar')}
-            <div class="ivyph-call-name">${esc(c.name)}</div>
+            <div class="ivyph-call-name">${esc(shown(c))}</div>
             <div class="ivyph-call-number">${esc(c.number || 'number withheld')}</div>
             <div class="ivyph-call-actions">
                 <button class="ivyph-call-btn ivyph-decline" data-hangup="${esc(id)}"><span class="ivyph-call-circle">${icon('phoneOff')}</span><span>Hang up</span></button>
@@ -2235,7 +2329,7 @@ function renderConjure() {
     const rows = cs.length
         ? cs.map(c => `<li class="ivyph-row" data-conjure="${esc(c.key)}">
             ${avatarHtml(c)}
-            <span class="ivyph-row-body"><span class="ivyph-row-top"><b>${esc(c.name)}</b></span>
+            <span class="ivyph-row-body"><span class="ivyph-row-top"><b>${esc(shown(c))}</b></span>
             <span class="ivyph-row-sub">write a conversation with them</span></span>
         </li>`).join('')
         : `<li class="ivyph-empty-row">Add a contact first.</li>`;
@@ -2260,6 +2354,7 @@ async function conjureThread(key) {
         cardContext(),
         await lorebookContext(`${scene} ${c.name}`),
         `Current scene:\n${scene}`,
+        c.lore ? `Who ${c.name} is: ${c.lore}` : '',
         c.anchor ? `${c.name}: ${c.anchor}` : '',
         c.style ? `How ${c.name} texts: ${c.style}` : '',
         `Write a short text conversation between the phone owner and ${c.name} that fits the scene above.`,
@@ -2295,7 +2390,7 @@ function renderLog() {
         <li class="ivyph-row ivyph-call-row ${e.status === 'missed' || e.status === 'declined' ? 'ivyph-missed' : ''}">
             ${avatarHtml(contact(e.from) || { name: e.from })}
             <span class="ivyph-row-body">
-                <span class="ivyph-row-top"><b>${esc(e.from)}</b><time>${esc(stampOf(e))}</time></span>
+                <span class="ivyph-row-top"><b>${esc(shown(contact(e.from)) || e.from)}</b><time>${esc(stampOf(e))}</time></span>
                 <span class="ivyph-row-sub">${icon(glyph[e.status] || 'phone')} ${esc(statusWord(e))}</span>
             </span>
         </li>`).join('') + `</ul>`;
@@ -2322,7 +2417,7 @@ function renderCall(ev) {
     return `<div class="ivyph-callscreen">
             <div class="ivyph-call-label">incoming call</div>
             ${avatarHtml(c, 'ivyph-call-avatar')}
-            <div class="ivyph-call-name">${esc(c.name)}</div>
+            <div class="ivyph-call-name">${esc(shown(c))}</div>
             <div class="ivyph-call-number">${esc(c.number || 'number withheld')}</div>
             <div class="ivyph-call-actions">
                 <button class="ivyph-call-btn ivyph-decline" data-call="declined"><span class="ivyph-call-circle">${icon('phoneOff')}</span><span>Decline</span></button>
@@ -2418,6 +2513,29 @@ function wire() {
         render();
     }));
 
+    s.querySelectorAll('[data-del-group]').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const key = n.dataset.delGroup;
+        const st = store();
+        if (!confirm(`Удалить групповой чат «${st.groups[key]?.name || key}»?`)) return;
+        st.events = st.events.filter(e => keyOf(e.group) !== key);
+        delete st.groups[key];
+        save();
+        pushInjection();
+        go('contacts');
+    }));
+
+    s.querySelectorAll('[data-wipe]').forEach(n => n.addEventListener('click', () => {
+        const key = n.dataset.wipe;
+        const st = store();
+        const gone = st.events.filter(e => threadKey(e) === key && e.type !== 'call').length;
+        if (!gone || !confirm(`Удалить переписку? Сообщений: ${gone}`)) return;
+        st.events = st.events.filter(e => !(threadKey(e) === key && e.type !== 'call'));
+        save();
+        pushInjection();
+        go('home');
+    }));
+
     s.querySelectorAll('[data-hangup]').forEach(n => n.addEventListener('click', () => {
         const ev = store().events.find(x => x.id === n.dataset.hangup);
         if (ev && ev.status === 'dialing') ev.status = 'ended';
@@ -2490,8 +2608,17 @@ function wire() {
 
     const delBtn = s.querySelector('[data-del-card]');
     if (delBtn) delBtn.addEventListener('click', () => {
-        delete store().contacts[s.querySelector('.ivyph-form').dataset.key];
+        const key = s.querySelector('.ivyph-form').dataset.key;
+        const st = store();
+        const name = st.contacts[key]?.name || key;
+        const n = st.events.filter(e => resolveKey(e.from) === key).length;
+
+        if (!confirm(`Удалить ${name}? Вместе с ним удалится переписка и звонки: ${n}`)) return;
+
+        st.events = st.events.filter(e => resolveKey(e.from) !== key);
+        delete st.contacts[key];
         save();
+        pushInjection();
         go('contacts');
     });
 }
@@ -2676,6 +2803,7 @@ function init() {
         screen = { name: 'home', arg: null };
         rebuildFromChat();
         syncFromContext();
+        mergeDuplicates();
         syncFromLorebook();
         pushInjection();
         render();
@@ -2690,7 +2818,8 @@ function init() {
     buildMenuEntry();
     setInterval(() => { if (ui && !ui.overlay.hidden) ui.overlay.querySelector('.ivyph-clock').textContent = gameClock(); }, 20000);
     setTimeout(() => {
-        rebuildFromChat(); syncFromContext(); syncFromLorebook(); pushInjection(); render(); scrubAll();
+        rebuildFromChat(); syncFromContext(); mergeDuplicates();
+        syncFromLorebook(); pushInjection(); render(); scrubAll();
     }, 800);
 }
 

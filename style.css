@@ -191,6 +191,13 @@
 
 .ivyph-head-nav { justify-content: space-between; }
 
+.ivyph-head-tools { display: flex; align-items: center; gap: 2px; }
+
+.ivyph-head-tools [data-wipe] { color: #a3655a; }
+.ivyph-head-tools [data-wipe]:hover { color: #c9695b; }
+
+.ivyph-row [data-del-group] { flex: none; color: #a3655a; }
+
 .ivyph-title {
     display: flex;
     flex-direction: column;
