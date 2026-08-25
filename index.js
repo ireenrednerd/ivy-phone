@@ -535,6 +535,31 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 .ivyph-mini:hover { background: #222a31; }
 .ivyph-mini-off { color: #c9695b; }
 
+.ivyph-quick {
+    display: flex;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.ivyph-quick-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 11px;
+    border: 1px solid var(--ph-line);
+    border-radius: 9px;
+    background: var(--ph-chrome);
+    color: var(--ph-text);
+    font: 600 13px var(--ph-face);
+    cursor: pointer;
+}
+
+.ivyph-quick-btn:hover { background: #222a31; }
+.ivyph-quick-btn .ivyph-i { width: 16px; height: 16px; vertical-align: 0; }
+.ivyph-quick-btn[data-place-call] { color: #9ed8a8; }
+
 .ivyph-form-actions { display: flex; gap: 10px; margin-top: 4px; }
 
 .ivyph-primary,
@@ -1393,16 +1418,68 @@ function sceneContext(limit = 6) {
 function cardContext() {
     try {
         const ctx = getContext();
-        const cid = ctx.characterId ?? ctx.this_chid;
-        const ch = (ctx.characters || [])[cid];
+        const chars = ctx.characters || [];
         const bits = [];
-        if (ch?.description) bits.push(`Setting and cast:\n${ch.description}`);
-        if (ctx.name1) bits.push(`The phone owner is ${ctx.name1}.`);
+
+        // все персонажи чата: в группе — каждый участник
+        const cast = [];
+        const gid = ctx.groupId ?? ctx.group_id;
+        if (gid && Array.isArray(ctx.groups)) {
+            const g = ctx.groups.find(x => String(x.id) === String(gid));
+            (g?.members || []).forEach(f => {
+                const ch = chars.find(c => c.avatar === f);
+                if (ch) cast.push(ch);
+            });
+        } else {
+            const cid = ctx.characterId ?? ctx.this_chid;
+            if (chars[cid]) cast.push(chars[cid]);
+        }
+
+        cast.forEach(ch => {
+            const card = [ch.description, ch.personality, ch.scenario]
+                .filter(Boolean).join('\n');
+            if (card) bits.push(`### ${ch.name}\n${card}`);
+        });
+
+        // персона игрока
+        const persona = ctx.powerUserSettings?.persona_description
+            || ctx.power_user?.persona_description || '';
+        if (ctx.name1) {
+            bits.push(`### Phone owner\nThe owner of this phone is ${ctx.name1}.` +
+                (persona ? `\n${persona}` : ''));
+        }
+
+        // точные имена и номера, чтобы модель не выдумывала фамилии
+        const known = Object.values(store().contacts)
+            .map(c => `${c.name}${c.number ? ` (${c.number})` : ''}`)
+            .join(', ');
+        if (known) bits.push(`### Contacts in this phone\n${known}\nUse these exact names. Do not invent surnames or relatives.`);
+
         return bits.join('\n\n');
     } catch { return ''; }
 }
 
-function buildReplyPrompt(c, outgoing) {
+// Лорбук: подтягиваем записи, чьи ключи встречаются в переписке или сцене.
+// Именно это чинит путаницу с фамилиями и родственными связями.
+async function lorebookContext(needle) {
+    try {
+        const wi = await import('../../../world-info.js');
+        if (typeof wi.getSortedEntries !== 'function') return '';
+        const entries = await wi.getSortedEntries();
+        const hay = String(needle || '').toLowerCase();
+
+        const hits = entries.filter(e => {
+            if (e.disable) return false;
+            return (e.key || []).some(k => k && hay.includes(String(k).toLowerCase()));
+        }).slice(0, 8);
+
+        return hits.length
+            ? `### Lore\n${hits.map(e => String(e.content || '').trim()).filter(Boolean).join('\n\n')}`
+            : '';
+    } catch { return ''; }
+}
+
+async function buildReplyPrompt(c, outgoing) {
     const s = settings();
     const thread = store().events
         .filter(e => keyOf(e.from) === c.key && e.type === 'sms')
@@ -1410,12 +1487,16 @@ function buildReplyPrompt(c, outgoing) {
         .map(e => `${e.dir === 'out' ? 'OWNER' : c.name}: ${e.text}`)
         .join('\n');
 
+    const scene = sceneContext(s.contextMode === 'full' ? 8 : 4);
     const parts = [];
+
     if (s.contextMode === 'full') {
         const card = cardContext();
         if (card) parts.push(card);
+        const lore = await lorebookContext(`${scene}\n${thread}\n${c.name} ${outgoing || ''}`);
+        if (lore) parts.push(lore);
     }
-    parts.push(`Current scene:\n${sceneContext(s.contextMode === 'full' ? 8 : 4)}`);
+    parts.push(`Current scene:\n${scene}`);
     if (c.anchor) parts.push(`${c.name}: ${c.anchor}`);
     parts.push(`Text conversation so far:\n${thread}`);
     parts.push(
@@ -1452,7 +1533,7 @@ async function askModel(prompt) {
 
 async function generateReply(c, outgoing) {
     try {
-        let text = await askModel(buildReplyPrompt(c, outgoing));
+        let text = await askModel(await buildReplyPrompt(c, outgoing));
         text = String(text || '').trim().replace(/^["']|["']$/g, '');
         if (!text) { logDebug(`пустой ответ от ${c.name}`); return; }
 
@@ -1910,6 +1991,10 @@ function renderCard(k) {
             <label>Handle<input data-f="handle" value="${esc(c.handle)}" placeholder="@codyj"></label>
             <label>Appearance anchor<textarea data-f="anchor" rows="3" placeholder="Used when generating photos">${esc(c.anchor)}</textarea></label>
             <label>Color<input type="color" data-f="color" value="${esc(c.color || '#3d4a55')}"></label>
+            ${isNew ? '' : `<div class="ivyph-quick">
+                <button class="ivyph-quick-btn" data-open-thread="${esc(c.key)}">${icon('message')}<span>Message</span></button>
+                <button class="ivyph-quick-btn" data-place-call="${esc(c.key)}">${icon('phone')}<span>Call</span></button>
+            </div>`}
             <div class="ivyph-form-actions">
                 <button class="ivyph-primary" data-save-card>Save</button>
                 ${isNew ? '' : '<button class="ivyph-danger" data-del-card>Delete</button>'}
@@ -1942,9 +2027,11 @@ async function conjureThread(key) {
     go('thread', key);
     logDebug(`сочиняю переписку с ${c.name}`);
 
+    const scene = sceneContext(6);
     const prompt = [
         cardContext(),
-        `Current scene:\n${sceneContext(6)}`,
+        await lorebookContext(`${scene} ${c.name}`),
+        `Current scene:\n${scene}`,
         c.anchor ? `${c.name}: ${c.anchor}` : '',
         `Write a short text conversation between the phone owner and ${c.name} that fits the scene above.`,
         `Six to ten messages. One per line. Prefix each line with "IN:" for ${c.name} and "OUT:" for the owner.`,
@@ -2101,6 +2188,12 @@ function wire() {
         conjureThread(n.dataset.conjure);
     }));
 
+    s.querySelectorAll('[data-open-thread]').forEach(n =>
+        n.addEventListener('click', () => go('thread', n.dataset.openThread)));
+
+    s.querySelectorAll('[data-place-call]').forEach(n =>
+        n.addEventListener('click', () => placeCall(n.dataset.placeCall)));
+
     const pick = s.querySelector('[data-pick-photo]');
     if (pick) pick.addEventListener('click', () => {
         const file = document.createElement('input');
@@ -2175,11 +2268,8 @@ function shrinkImage(file, size = 160) {
 
 // ---------------------------------------------------------------- outgoing
 
-async function sendFromPhone(k, text) {
+async function pushToChat(marker) {
     const ctx = getContext();
-    const c = contact(k) || { name: k };
-    const marker = `[PHONE]\nSMS|${c.name}|${text}|out\n[/PHONE]`;
-
     const message = {
         name: ctx.name1,
         is_user: true,
@@ -2188,19 +2278,40 @@ async function sendFromPhone(k, text) {
         mes: marker,
         extra: {},
     };
-
     ctx.chat.push(message);
     ctx.addOneMessage(message);
     await ctx.saveChat();
+    setTimeout(scrubAll, 0);
+    return ctx.chat.length - 1;
+}
 
-    addEvent({ mesId: ctx.chat.length - 1, type: 'sms', dir: 'out', from: c.name, text });
+async function sendFromPhone(k, text) {
+    const c = contact(k) || { name: k };
+    const group = store().groups[keyOf(k.replace(/^g:/, ''))];
+    const target = group ? `${settings().ownerLabel}@${group.name}` : c.name;
+    const mesId = await pushToChat(`[PHONE]\nSMS|${target}|${text}|out\n[/PHONE]`);
+
+    addEvent({ mesId, type: 'sms', dir: 'out', from: c.name, group: group?.name || '', text });
     save();
     render();
-    scrubAll();
 
     const mode = settings().replyMode;
     if (mode === 'phone') await generateReply(c, text);
     else if (mode === 'chat') await runSlash('/trigger');
+}
+
+// Звонок от игрока: событие в журнал + маркер в чат, чтобы модель знала
+// о звонке и могла отыграть разговор в сцене.
+async function placeCall(key) {
+    const c = contact(key);
+    if (!c) return;
+
+    addEvent({ mesId: null, type: 'call', dir: 'out', from: c.name, status: 'outgoing', read: true });
+    save();
+    go('log');
+
+    await pushToChat(`[PHONE]\nCALL|${c.name}|outgoing\n[/PHONE]`);
+    if (settings().replyMode === 'chat') await runSlash('/trigger');
 }
 
 // ---------------------------------------------------------------- events

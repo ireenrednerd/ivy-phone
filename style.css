@@ -524,6 +524,31 @@
 .ivyph-mini:hover { background: #222a31; }
 .ivyph-mini-off { color: #c9695b; }
 
+.ivyph-quick {
+    display: flex;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.ivyph-quick-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 11px;
+    border: 1px solid var(--ph-line);
+    border-radius: 9px;
+    background: var(--ph-chrome);
+    color: var(--ph-text);
+    font: 600 13px var(--ph-face);
+    cursor: pointer;
+}
+
+.ivyph-quick-btn:hover { background: #222a31; }
+.ivyph-quick-btn .ivyph-i { width: 16px; height: 16px; vertical-align: 0; }
+.ivyph-quick-btn[data-place-call] { color: #9ed8a8; }
+
 .ivyph-form-actions { display: flex; gap: 10px; margin-top: 4px; }
 
 .ivyph-primary,
