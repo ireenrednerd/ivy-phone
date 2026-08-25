@@ -833,6 +833,56 @@
 
 .ivyph-picker button:hover { transform: scale(1.25); }
 
+.ivyph-msgtools {
+    align-self: center;
+    display: flex;
+    gap: 4px;
+    margin: 0 0 8px;
+}
+
+.ivyph-msgtools button {
+    padding: 5px 10px;
+    border: 1px solid var(--ph-line);
+    border-radius: 13px;
+    background: var(--ph-chrome);
+    color: var(--ph-dim);
+    font: 500 11.5px var(--ph-face);
+    cursor: pointer;
+}
+
+.ivyph-msgtools button:hover { color: var(--ph-text); }
+.ivyph-msgtools .ivyph-danger-text { color: #c9695b; }
+
+.ivyph-editing { width: 78%; }
+
+.ivyph-edit-box {
+    width: 100%;
+    resize: none;
+    padding: 7px 9px;
+    border-radius: 9px;
+    border: 1px solid var(--ph-line);
+    background: #10151a;
+    color: var(--ph-text);
+    font: 400 14px/1.4 var(--ph-face);
+}
+
+.ivyph-editing .ivyph-msgtools { margin-top: 7px; }
+
+.ivyph-check {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 9px !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    font-size: 12.5px !important;
+    color: var(--ph-text) !important;
+}
+
+.ivyph-check input { width: 17px; height: 17px; flex: none; }
+
+.ivyph-pick { width: 20px; height: 20px; flex: none; }
+.ivyph-group-name { text-transform: none; }
+
 .ivyph-scam { opacity: .82; border: 1px dashed #6b5340; }
 
 .ivyph-spacer { width: 26px; flex: none; }

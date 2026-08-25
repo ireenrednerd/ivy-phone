@@ -844,6 +844,56 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 
 .ivyph-picker button:hover { transform: scale(1.25); }
 
+.ivyph-msgtools {
+    align-self: center;
+    display: flex;
+    gap: 4px;
+    margin: 0 0 8px;
+}
+
+.ivyph-msgtools button {
+    padding: 5px 10px;
+    border: 1px solid var(--ph-line);
+    border-radius: 13px;
+    background: var(--ph-chrome);
+    color: var(--ph-dim);
+    font: 500 11.5px var(--ph-face);
+    cursor: pointer;
+}
+
+.ivyph-msgtools button:hover { color: var(--ph-text); }
+.ivyph-msgtools .ivyph-danger-text { color: #c9695b; }
+
+.ivyph-editing { width: 78%; }
+
+.ivyph-edit-box {
+    width: 100%;
+    resize: none;
+    padding: 7px 9px;
+    border-radius: 9px;
+    border: 1px solid var(--ph-line);
+    background: #10151a;
+    color: var(--ph-text);
+    font: 400 14px/1.4 var(--ph-face);
+}
+
+.ivyph-editing .ivyph-msgtools { margin-top: 7px; }
+
+.ivyph-check {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 9px !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    font-size: 12.5px !important;
+    color: var(--ph-text) !important;
+}
+
+.ivyph-check input { width: 17px; height: 17px; flex: none; }
+
+.ivyph-pick { width: 20px; height: 20px; flex: none; }
+.ivyph-group-name { text-transform: none; }
+
 .ivyph-scam { opacity: .82; border: 1px dashed #6b5340; }
 
 .ivyph-spacer { width: 26px; flex: none; }
@@ -1199,7 +1249,9 @@ const DEFAULTS = {
     autoOpenOnCall: true,
     replyMode: 'phone',
     autoPhotos: false,
+    imageMode: 'tag',
     imageCommand: '/sd quiet=true {{prompt}}',
+    imageTag: `<img data-iig-instruction='{"style":"cinematic photo, phone camera","prompt":"{{prompt}}","aspect_ratio":"3:4","image_size":"1K"}' src="[IMG:GEN]">`,
     timeMacro: '{{getvar::clock}}',
     dateMacro: '{{getvar::date}}',
     profile: '',
@@ -1211,6 +1263,7 @@ const DEFAULTS = {
     prefill: '',
     skin: 'modern',
     scams: false,
+    proseScan: true,
     proactive: true,
     proactiveChance: 12,
     strangerChance: 15,
@@ -1239,6 +1292,7 @@ function store() {
     const s = chat_metadata[MODULE];
     if (!s.contacts) s.contacts = {};
     if (!s.groups) s.groups = {};
+    if (!s.drafts) s.drafts = {};
     if (!s.events) s.events = [];
     return s;
 }
@@ -1412,6 +1466,10 @@ function parseLine(line, mesId) {
     switch (verb) {
         case 'SMS':
         case 'MSG':
+            if (store().contacts[resolveKey(from)]?.blocked) {
+                logDebug(`${from} заблокирован, сообщение отброшено`);
+                return null;
+            }
             return addEvent({ mesId, type: 'sms', dir, from, group, text: parts.join('|') });
 
         case 'PHOTO':
@@ -1496,18 +1554,75 @@ function extractUrl(result) {
     return hit ? hit[0].replace(/["')\]]+$/, '') : '';
 }
 
+// sillyimages не имеет слэш-команды: она ловит тег в сообщении чата,
+// генерирует картинку, заливает её на сервер таверны и подменяет src на
+// реальный путь. Поэтому кладём служебное сообщение с тегом, ждём подмены,
+// забираем путь и прячем это сообщение из сцены.
+async function generateViaTag(ev, prompt) {
+    const ctx = getContext();
+    const tag = settings().imageTag.replace('{{prompt}}', prompt.replace(/"/g, "'"));
+
+    const carrier = {
+        name: ctx.name2 || 'Phone',
+        is_user: false,
+        is_system: false,
+        send_date: typeof ctx.getMessageTimeStamp === 'function' ? ctx.getMessageTimeStamp() : new Date().toISOString(),
+        mes: tag,
+        extra: { ivyph_carrier: true },
+    };
+    ctx.chat.push(carrier);
+    ctx.addOneMessage(carrier);
+    await ctx.saveChat();
+    const idx = ctx.chat.length - 1;
+
+    for (let i = 0; i < 90; i++) {
+        await wait(1000);
+        const src = String(ctx.chat[idx]?.mes || '').match(/<img[^>]+src=["']([^"']+)["']/i)?.[1];
+        if (src && !/IMG:GEN/i.test(src)) {
+            ev.image = src;
+            ev.state = 'done';
+            hideCarrier(idx);
+            return true;
+        }
+        if (/error\.svg/i.test(String(ctx.chat[idx]?.mes || ''))) break;
+    }
+
+    hideCarrier(idx);
+    return false;
+}
+
+// Служебное сообщение прячем: помечаем системным, чтобы оно не попало
+// в промпт, и убираем из ленты.
+async function hideCarrier(idx) {
+    try {
+        const ctx = getContext();
+        const m = ctx.chat[idx];
+        if (!m) return;
+        m.is_system = true;
+        m.mes = '';
+        await ctx.saveChat();
+        document.querySelector(`#chat .mes[mesid="${idx}"]`)?.style.setProperty('display', 'none', 'important');
+    } catch { /* не критично */ }
+}
+
 async function generatePhoto(ev) {
     if (!ev || ev.state === 'pending') return;
+    const s = settings();
     const c = contact(ev.from);
     const prompt = [c?.anchor, ev.prompt].filter(Boolean).join(', ');
-    const cmd = settings().imageCommand.replace('{{prompt}}', prompt);
 
     ev.state = 'pending';
     render();
 
-    const url = extractUrl(await runSlash(cmd));
-    if (url) { ev.image = url; ev.state = 'done'; }
-    else { ev.state = 'error'; }
+    let ok = false;
+    if (s.imageMode === 'tag') {
+        ok = await generateViaTag(ev, prompt);
+    } else {
+        const url = extractUrl(await runSlash(s.imageCommand.replace('{{prompt}}', prompt)));
+        if (url) { ev.image = url; ev.state = 'done'; ok = true; }
+    }
+
+    if (!ok) { ev.state = 'error'; logDebug(`картинка не пришла: ${prompt.slice(0, 50)}`); }
     save();
     render();
 }
@@ -1647,6 +1762,7 @@ async function buildReplyPrompt(c, outgoing) {
     if (c.anchor) parts.push(`${c.name}: ${c.anchor}`);
     parts.push(`Text conversation so far:\n${thread}`);
     if (c.lore) parts.push(`### Who ${c.name} is\n${c.lore}`);
+    if (c.lore) parts.push(`### Who ${c.name} is\n${c.lore}`);
     if (c.style) parts.push(`### How ${c.name} texts\n${c.style}`);
 
     parts.push([
@@ -1738,7 +1854,8 @@ async function maybeProactive() {
     if (!s.proactive || s.replyMode === 'none') return;
     if (Math.random() * 100 > (s.proactiveChance || 0)) return;
 
-    const cs = Object.values(store().contacts).filter(c => c.name && !/^\+?[\d\s()-]+$/.test(c.name));
+    const cs = Object.values(store().contacts)
+        .filter(c => c.name && !c.blocked && !/^\+?[\d\s()-]+$/.test(c.name));
     const stranger = Math.random() * 100 < (s.strangerChance || 0);
     if (!cs.length && !stranger) return;
 
@@ -1811,6 +1928,11 @@ function instructionText() {
         'CONTACT|Full Name|+1 206 555 0114|@handle',
         'TIME|21:47|friday, august 12 2011',
         'Rules: never repeat the text of a message in the prose — describe only the reaction.',
+        'Any texting or calling that happens in the scene must also appear in the block — including',
+        'messages the phone owner sends and calls the owner makes. If the prose says someone texted,',
+        'called, hung up or missed a call, the matching line is mandatory in the same reply.',
+        'When the owner asks for a picture, you MUST answer with a PHOTO line inside the block.',
+        'Never refuse a photo, never say you cannot send images, never describe the photo in prose instead.',
         'Photo prompts in English, framing only: place, light, angle. Max 4 lines per block.',
     ].join('\n');
 }
@@ -1856,6 +1978,17 @@ function scrubMessage(el) {
 }
 
 function scrubAll() {
+    // служебные сообщения генерации прячем всегда, независимо от настройки
+    try {
+        const ctx = getContext();
+        (ctx.chat || []).forEach((m, i) => {
+            if (m?.extra?.ivyph_carrier) {
+                document.querySelector(`#chat .mes[mesid="${i}"]`)
+                    ?.style.setProperty('display', 'none', 'important');
+            }
+        });
+    } catch { /* чат может быть ещё не готов */ }
+
     if (!settings().hideMarkers) return;
     document.querySelectorAll('#chat .mes').forEach(scrubMessage);
 }
@@ -1868,6 +2001,7 @@ const ICONS = {
     device: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.4"/><line x1="10.2" y1="18.6" x2="13.8" y2="18.6"/>',
     wifi: '<path d="M1.8 8.4a15.5 15.5 0 0 1 20.4 0" stroke-width="2"/><path d="M5.4 12.2a10.3 10.3 0 0 1 13.2 0" stroke-width="2"/><path d="M8.9 15.9a5.2 5.2 0 0 1 6.2 0" stroke-width="2"/><circle cx="12" cy="19.6" r="1.3" fill="currentColor" stroke="none"/>',
     battery: '<rect x="1.5" y="7.5" width="17.5" height="9" rx="2.6" stroke-width="1.6"/><path d="M21.3 10.6v2.8" stroke-width="2.2"/><rect x="3.4" y="9.4" width="10.5" height="5.2" rx="1.4" fill="currentColor" stroke="none"/>',
+    camera: '<path d="M3 8.4h3.6L8.2 6h7.6l1.6 2.4H21v10H3Z"/><circle cx="12" cy="13.2" r="3.4"/>',
     image: '<rect x="3" y="4.5" width="18" height="15" rx="2.4"/><circle cx="8.6" cy="9.8" r="1.7"/><path d="M3.4 17.2 8.9 12l4 3.6 3.2-2.6 4.5 4.2"/>',
     refresh: '<path d="M20.2 11.4a8.3 8.3 0 1 1-2.4-5.6"/><polyline points="20.6,3.6 20.6,9 15.2,9"/>',
     trash: '<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.8h5v1.7"/><path d="M6.4 6.5 7.3 20h9.4l.9-13.5"/><path d="M10.3 10v6M13.7 10v6"/>',
@@ -1983,8 +2117,13 @@ function shown(c) {
     return (c?.label || '').trim() || c?.name || '';
 }
 
+// Как контакт подписан у тебя в телефоне. В модель это никогда не уходит.
+function shownName(c) {
+    return (c?.display || '').trim() || c?.name || '';
+}
+
 function avatarHtml(c, cls = 'ivyph-avatar') {
-    const name = c?.name || '?';
+    const name = shownName(c) || '?';
     const tint = c?.color || '#3d4a55';
     const inner = c?.avatar
         ? `<img src="${esc(c.avatar)}" alt="" onerror="this.remove()">`
@@ -2197,6 +2336,16 @@ function renderThread(k) {
     save();
 
     const bubbles = list.map(e => {
+        if (screen.edit === e.id) {
+            return `<div class="ivyph-bub ivyph-${e.dir} ivyph-editing">
+                <textarea class="ivyph-edit-box" rows="3">${esc(e.text)}</textarea>
+                <span class="ivyph-msgtools">
+                    <button data-save-msg="${esc(e.id)}">Save</button>
+                    <button data-cancel-msg>Cancel</button>
+                </span>
+            </div>`;
+        }
+
         let inner = '';
         if (e.type === 'photo') {
             if (e.image) {
@@ -2223,9 +2372,15 @@ function renderThread(k) {
         const react = e.reaction ? `<span class="ivyph-react">${esc(e.reaction)}</span>` : '';
         const dstate = e.dir === 'out' && e.dstate
             ? `<span class="ivyph-dstate">${esc(DSTATE[e.dstate] || e.dstate)}</span>` : '';
-        const picker = screen.react === e.id
-            ? `<span class="ivyph-picker">${REACTIONS.map(r => `<button data-react="${esc(e.id)}" data-emoji="${r}">${r}</button>`).join('')}</span>`
-            : '';
+        const picker = screen.react === e.id ? `
+            <span class="ivyph-picker">
+                ${REACTIONS.map(r => `<button data-react="${esc(e.id)}" data-emoji="${r}">${r}</button>`).join('')}
+            </span>
+            <span class="ivyph-msgtools">
+                <button data-edit-msg="${esc(e.id)}">Edit</button>
+                <button data-copy-msg="${esc(e.id)}">Copy</button>
+                <button class="ivyph-danger-text" data-del-msg="${esc(e.id)}">Delete</button>
+            </span>` : '';
         return `<div class="ivyph-bub ivyph-${e.dir}${e.scam ? ' ivyph-scam' : ''}" data-ev="${esc(e.id)}">${who}${inner}<time>${esc(stampOf(e))}${dstate}</time>${react}</div>${picker}`;
     }).join('');
 
@@ -2243,6 +2398,7 @@ function renderThread(k) {
         <div class="ivyph-thread">${bubbles}${typing}</div>
         <div class="ivyph-compose">
             <button class="ivyph-attach" data-attach="${esc(k)}">${icon('image')}</button>
+            <button class="ivyph-attach" data-askphoto="${esc(k)}" title="Ask for a photo">${icon('camera')}</button>
             <textarea rows="1" placeholder="Message ${esc(shown(c))}…"></textarea>
             <button class="ivyph-send" data-send="${esc(keyOf(k))}">${icon('arrowUp')}</button>
         </div>`;
@@ -2270,9 +2426,33 @@ function renderContacts() {
 
     return `<div class="ivyph-head ivyph-head-nav">
             <span>Contacts</span>
-            <button class="ivyph-icon-btn" data-card="__new__">${icon('plus')}</button>
+            <span class="ivyph-head-tools">
+                <button class="ivyph-icon-btn" data-go="newgroup" title="New group">${icon('user')}+</button>
+                <button class="ivyph-icon-btn" data-card="__new__">${icon('plus')}</button>
+            </span>
         </div>
         <ul class="ivyph-list">${rows}${groupRows}</ul>`;
+}
+
+function renderNewGroup() {
+    const cs = Object.values(store().contacts).filter(c => !c.blocked);
+    return `<div class="ivyph-head ivyph-head-nav">
+            <button class="ivyph-back" data-go="contacts">${icon('chevronLeft')}</button>
+            <span class="ivyph-title">New group<small>pick who is in it</small></span>
+            <span class="ivyph-spacer"></span>
+        </div>
+        <div class="ivyph-form">
+            <label>Group name<input class="ivyph-group-name" placeholder="The Crew"></label>
+        </div>
+        <ul class="ivyph-list">${cs.map(c => `
+            <li class="ivyph-row">
+                ${avatarHtml(c)}
+                <span class="ivyph-row-body"><span class="ivyph-row-top"><b>${esc(shownName(c))}</b></span></span>
+                <input type="checkbox" class="ivyph-pick" value="${esc(c.name)}">
+            </li>`).join('')}</ul>
+        <div class="ivyph-form">
+            <button class="ivyph-primary" data-make-group>Create group</button>
+        </div>`;
 }
 
 function renderCard(k) {
@@ -2290,6 +2470,10 @@ function renderCard(k) {
             <label>Handle<input data-f="handle" value="${esc(c.handle)}" placeholder="@handle"></label>
             <label>Appearance anchor<textarea data-f="anchor" rows="3" placeholder="Used when generating photos">${esc(c.anchor)}</textarea></label>
             <label>Texting style<textarea data-f="style" rows="3" placeholder="lowercase, no punctuation, never uses emoji, one-word replies">${esc(c.style || '')}</textarea></label>
+            <label class="ivyph-check">
+                <input type="checkbox" data-f="blocked" ${c.blocked ? 'checked' : ''}>
+                <span>Blocked — their messages never arrive</span>
+            </label>
             <label>Color<input type="color" data-f="color" value="${esc(c.color || '#3d4a55')}"></label>
             <label>Photo
                 <span class="ivyph-avatar-pick">
@@ -2454,6 +2638,7 @@ function render() {
     else if (screen.name === 'log') html = renderLog();
     else if (screen.name === 'conjure') html = renderConjure();
     else if (screen.name === 'dialing') html = renderDialing(screen.arg);
+    else if (screen.name === 'newgroup') html = renderNewGroup();
     else html = renderHome();
 
     ui.overlay.classList.toggle('ivyph-ringing', !!ringing || screen.name === 'dialing');
@@ -2486,11 +2671,17 @@ function wire() {
     const send = s.querySelector('[data-send]');
     if (send) {
         const box = s.querySelector('.ivyph-compose textarea');
+        const key = send.dataset.send;
+        const st = store();
+        box.value = st.drafts[key] || '';
+        box.addEventListener('input', () => { st.drafts[key] = box.value; });
+
         const fire = () => {
             const text = box.value.trim();
             if (!text) return;
             box.value = '';
-            sendFromPhone(send.dataset.send, text);
+            delete st.drafts[key];
+            sendFromPhone(key, text);
         };
         send.addEventListener('click', fire);
         box.addEventListener('keydown', e => {
@@ -2501,6 +2692,48 @@ function wire() {
     s.querySelectorAll('[data-ev]').forEach(n => n.addEventListener('click', ev => {
         if (ev.target.closest('[data-react]') || ev.target.closest('img')) return;
         screen.react = screen.react === n.dataset.ev ? null : n.dataset.ev;
+        render();
+    }));
+
+    s.querySelectorAll('[data-edit-msg]').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        screen.edit = n.dataset.editMsg;
+        screen.react = null;
+        render();
+    }));
+
+    s.querySelectorAll('[data-save-msg]').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const box = s.querySelector('.ivyph-edit-box');
+        const e = store().events.find(x => x.id === n.dataset.saveMsg);
+        if (e && box) e.text = box.value.trim();
+        screen.edit = null;
+        save();
+        pushInjection();
+        render();
+    }));
+
+    s.querySelectorAll('[data-cancel-msg]').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        screen.edit = null;
+        render();
+    }));
+
+    s.querySelectorAll('[data-copy-msg]').forEach(n => n.addEventListener('click', async ev => {
+        ev.stopPropagation();
+        const e = store().events.find(x => x.id === n.dataset.copyMsg);
+        try { await navigator.clipboard.writeText(e?.text || ''); } catch { /* нет доступа */ }
+        screen.react = null;
+        render();
+    }));
+
+    s.querySelectorAll('[data-del-msg]').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const st = store();
+        st.events = st.events.filter(x => x.id !== n.dataset.delMsg);
+        screen.react = null;
+        save();
+        pushInjection();
         render();
     }));
 
@@ -2543,12 +2776,30 @@ function wire() {
         go('log');
     }));
 
+    const make = s.querySelector('[data-make-group]');
+    if (make) make.addEventListener('click', () => {
+        const name = s.querySelector('.ivyph-group-name')?.value.trim();
+        const members = [...s.querySelectorAll('.ivyph-pick:checked')].map(x => x.value);
+        if (!name || members.length < 2) {
+            alert('Нужно название и хотя бы двое участников.');
+            return;
+        }
+        const st = store();
+        st.groups[keyOf(name)] = { key: keyOf(name), name, members };
+        save();
+        pushInjection();
+        go('thread', `g:${keyOf(name)}`);
+    });
+
     const wand = s.querySelector('[data-wand]');
     if (wand) wand.addEventListener('click', () => go('conjure'));
 
     s.querySelectorAll('[data-conjure]').forEach(n => n.addEventListener('click', () => {
         conjureThread(n.dataset.conjure);
     }));
+
+    const ask = s.querySelector('[data-askphoto]');
+    if (ask) ask.addEventListener('click', () => askForPhoto(ask.dataset.askphoto));
 
     const attach = s.querySelector('[data-attach]');
     if (attach) attach.addEventListener('click', () => {
@@ -2597,7 +2848,9 @@ function wire() {
     if (saveBtn) saveBtn.addEventListener('click', () => {
         const form = s.querySelector('.ivyph-form');
         const patch = {};
-        form.querySelectorAll('[data-f]').forEach(f => { patch[f.dataset.f] = f.value.trim(); });
+        form.querySelectorAll('[data-f]').forEach(f => {
+            patch[f.dataset.f] = f.type === 'checkbox' ? f.checked : f.value.trim();
+        });
         if (!patch.name) return;
         const existing = form.dataset.key;
         if (existing && keyOf(patch.name) !== existing) delete store().contacts[existing];
@@ -2670,6 +2923,48 @@ async function pushToChat(marker) {
 
 // Своя картинка из галереи: ужимаем до 512px и кладём в переписку.
 // В чат уходит маркер с подписью, чтобы персонаж знал, что ему прислали фото.
+// Просьба прислать фото. Модель здесь не решает, соглашаться ли — её просят
+// только описать кадр. Поэтому персонаж не может «отказаться» или ответить
+// прозой вместо картинки.
+async function askForPhoto(k) {
+    const c = contact(k.replace(/^g:/, ''));
+    if (!c) return;
+
+    const mesId = await pushToChat(`[PHONE]\nSMS|${c.name}|send me a picture|out\n[/PHONE]`);
+    addEvent({ mesId, type: 'sms', dir: 'out', from: c.name, text: 'send me a picture', dstate: 'sent' });
+    save();
+
+    store().typing = resolveKey(c.name);
+    render();
+
+    const scene = sceneContext(6);
+    const shot = await askModel([
+        cardContext(),
+        await lorebookContext(`${scene} ${c.name}`),
+        `Current scene:\n${scene}`,
+        c.lore ? `Who ${c.name} is: ${c.lore}` : '',
+        `The phone owner just asked ${c.name} to send a picture.`,
+        `Describe the photo ${c.name} would actually take right now, in English, as an image prompt.`,
+        `Only the framing: place, light, time of day, angle, what is in frame. No names, no appearance —`,
+        `that is added separately. One line, under 200 characters, no quotes, no explanation.`,
+    ].filter(Boolean).join('\n\n'));
+
+    store().typing = '';
+
+    const prompt = String(shot || '').trim().replace(/^["']|["']$/g, '').split('\n')[0];
+    if (!prompt) { logDebug('модель не описала кадр'); render(); return; }
+
+    const ev = addEvent({
+        mesId: null, type: 'photo', dir: 'in', from: c.name,
+        prompt, text: '', state: 'idle',
+    });
+    save();
+    render();
+    pushInjection();
+
+    if (settings().autoPhotos) generatePhoto(ev);
+}
+
 async function sendPhotoFromPhone(k, file) {
     const c = contact(k.replace(/^g:/, '')) || { name: k };
     let url = '';
@@ -2748,7 +3043,74 @@ async function placeCall(key) {
     if (verdict === 'answered' && settings().replyMode !== 'none') await runSlash('/trigger');
 }
 
+// Если смс или звонок описали прозой, а маркер не поставили — вытаскиваем.
+// Сначала дешёвая проверка по словам, чтобы не дёргать модель каждый ход.
+const PHONE_WORDS = /\b(text|texts|texted|texting|message|messaged|sms|call|calls|called|calling|phone|dial(?:s|ed)?|voicemail|hung up|picked up|rang|ring)\b|\b(смс|сообщени\w*|звон\w*|позвон\w*|набрал\w*|трубк\w*|телефон\w*)\b/i;
+
+async function scanProse(mesId, text) {
+    const s = settings();
+    if (!s.proseScan || !s.enabled) return;
+
+    const clean = String(text || '').replace(BLOCK_RE, '').trim();
+    if (!clean || !PHONE_WORDS.test(clean)) return;
+
+    const names = Object.values(store().contacts).map(c => c.name).join(', ');
+
+    const out = await askModel([
+        `Read this passage from a roleplay scene and extract only real phone activity that happens in it.`,
+        names ? `Known contacts: ${names}. Use these exact names when they match.` : '',
+        `Passage:\n${clean}`,
+        ``,
+        `Output one line per event, nothing else:`,
+        `SMS|Name|the message text          (add |out at the end if the phone owner sent it)`,
+        `CALL|Name|incoming                 (or: missed, declined, answered, ended, outgoing)`,
+        `PHOTO|Name|english image prompt|caption`,
+        ``,
+        `Only include something that actually happened in this passage. Do not invent wording:`,
+        `if the exact message text is not written out, skip it. If nothing phone-related happened,`,
+        `answer with exactly NONE.`,
+    ].filter(Boolean).join('\n'));
+
+    const body = String(out || '').trim();
+    if (!body || /^none$/i.test(body)) return;
+
+    let added = 0;
+    body.split('\n').map(l => l.trim()).filter(Boolean).forEach(line => {
+        if (!/^(SMS|CALL|PHOTO|VOICE)\|/i.test(line)) return;
+        if (parseLine(line, mesId)) added++;
+    });
+
+    if (added) {
+        save();
+        render();
+        pushInjection();
+        logDebug(`из прозы вытащено событий: ${added}`);
+    }
+}
+
 // ---------------------------------------------------------------- events
+
+// Сообщения игрока: маркеры разбираем всегда, прозу — если включён подхват.
+function ingestUser(mesId) {
+    if (!settings().enabled) return;
+    const ctx = getContext();
+    const msg = ctx.chat?.[mesId];
+    if (!msg || !msg.is_user || msg.extra?.ivyph_carrier) return;
+
+    purgeMessage(mesId);
+    const made = parseBlocks(msg.mes, mesId);
+
+    if (made.length) {
+        save();
+        render();
+        pushInjection();
+        setTimeout(scrubAll, 0);
+        made.filter(e => e.type === 'photo' && settings().autoPhotos).forEach(generatePhoto);
+        return;
+    }
+
+    scanProse(mesId, msg.mes);
+}
 
 function ingest(mesId) {
     if (!settings().enabled) return;
@@ -2760,6 +3122,7 @@ function ingest(mesId) {
     const made = parseBlocks(msg.mes, mesId);
 
     if (!made.length) {
+        scanProse(mesId, msg.mes);
         maybeScam();
         maybeProactive();
         return;
@@ -2792,6 +3155,7 @@ function init() {
     buildShell();
 
     eventSource.on(event_types.MESSAGE_RECEIVED, ingest);
+    eventSource.on(event_types.MESSAGE_SENT, ingestUser);
     eventSource.on(event_types.MESSAGE_UPDATED, ingest);
     eventSource.on(event_types.MESSAGE_SWIPED, id => purgeMessage(id));
     eventSource.on(event_types.MESSAGE_DELETED, id => purgeMessage(id, true));
@@ -2866,6 +3230,7 @@ function buildSettingsPanel() {
                     </select>
                 </label>
                 <label class="checkbox_label"><input type="checkbox" data-s="scams"> Спам и мошенники</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="proseScan"> Подхватывать смс и звонки из текста ролевой</label>
                 <label class="checkbox_label"><input type="checkbox" data-s="proactive"> Контакты пишут сами</label>
                 <label>Шанс, что напишут (%)<input class="text_pole" type="number" data-s="proactiveChance"></label>
                 <label>Из них незнакомый номер (%)<input class="text_pole" type="number" data-s="strangerChance"></label>
@@ -2897,7 +3262,14 @@ function buildSettingsPanel() {
 
                 <hr>
                 <b>Картинки и часы</b>
-                <label>Команда генерации<input class="text_pole" data-s="imageCommand" placeholder="/sd quiet=true {{prompt}}"></label>
+                <label>Способ генерации
+                    <select class="text_pole" data-s="imageMode">
+                        <option value="tag">Тег в сообщении (sillyimages)</option>
+                        <option value="slash">Слэш-команда</option>
+                    </select>
+                </label>
+                <label>Тег для картинки<input class="text_pole" data-s="imageTag"></label>
+                <label>Слэш-команда<input class="text_pole" data-s="imageCommand" placeholder="/sd quiet=true {{prompt}}"></label>
                 <label>Время в игре<input class="text_pole" data-s="timeMacro" placeholder="{{getvar::time}}"></label>
                 <label>Дата в игре<input class="text_pole" data-s="dateMacro" placeholder="{{getvar::date}}"></label>
                 <label>Оператор<input class="text_pole" data-s="carrier"></label>
