@@ -271,6 +271,9 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
     font: 600 15px/1 var(--ph-face);
 }
 
+.ivyph-avatar-group .ivyph-i { width: 22px; height: 22px; }
+.ivyph-call-avatar.ivyph-avatar-group .ivyph-i { width: 48px; height: 48px; }
+
 .ivyph-avatar img,
 .ivyph-call-avatar img {
     position: absolute;
@@ -977,13 +980,13 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 [data-skin="iphone4"] .ivyph-screen,
 [data-skin="iphone4"] .ivyph-thread {
     background: repeating-linear-gradient(
-        180deg, #d9dbde 0 22px, #d2d5d8 22px 44px
+        180deg, #eef0f2 0 22px, #e6e8ea 22px 44px
     );
 }
 
-[data-skin="iphone4"] .ivyph-list { background: #d9dbde; }
-[data-skin="iphone4"] .ivyph-row { border-bottom: 1px solid #b9bdc2; }
-[data-skin="iphone4"] .ivyph-row:hover { background: #cfd2d6; }
+[data-skin="iphone4"] .ivyph-list { background: #eef0f2; }
+[data-skin="iphone4"] .ivyph-row { border-bottom: 1px solid #c9cdd2; }
+[data-skin="iphone4"] .ivyph-row:hover { background: #e2e5e8; }
 [data-skin="iphone4"] .ivyph-row-top b { color: #1a1d21; }
 [data-skin="iphone4"] .ivyph-row-sub { color: #5c636b; }
 [data-skin="iphone4"] .ivyph-row-top time { color: #6d747c; }
@@ -1031,6 +1034,31 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 [data-skin="iphone4"] .ivyph-empty { color: #5c636b; }
 [data-skin="iphone4"] .ivyph-empty p { color: #1a1d21; }
 [data-skin="iphone4"] .ivyph-title small { color: #d6dbe0; }
+
+[data-skin="iphone4"] .ivyph-form input,
+[data-skin="iphone4"] .ivyph-form textarea,
+[data-skin="iphone4"] .ivyph-edit-box {
+    background: #fff;
+    color: #16181b;
+    border: 1px solid #b9bdc2;
+}
+
+[data-skin="iphone4"] .ivyph-form label { color: #5c636b; }
+[data-skin="iphone4"] .ivyph-check { color: #1a1d21 !important; }
+[data-skin="iphone4"] .ivyph-shot { background: #e2e5e8; border-color: #b9bdc2; }
+[data-skin="iphone4"] .ivyph-shot-desc { color: #5c636b; }
+[data-skin="iphone4"] .ivyph-mini { background: #fff; color: #16181b; border-color: #b9bdc2; }
+[data-skin="iphone4"] .ivyph-subhead { background: #e6e8ea; color: #5c636b; }
+[data-skin="iphone4"] .ivyph-msgtools button { background: #fff; color: #3a3f45; border-color: #b9bdc2; }
+[data-skin="iphone4"] .ivyph-react,
+[data-skin="iphone4"] .ivyph-picker { background: #fff; border-color: #b9bdc2; }
+[data-skin="iphone4"] .ivyph-callscreen {
+    background: radial-gradient(90% 55% at 50% 22%, #e6e8ea, #cdd1d5);
+}
+[data-skin="iphone4"] .ivyph-call-name { color: #16181b; }
+[data-skin="iphone4"] .ivyph-call-number { color: #5c636b; }
+[data-skin="iphone4"] .ivyph-call-label { color: #5c636b; }
+[data-skin="iphone4"] .ivyph-call-btn { color: #3a3f45; }
 
 /* ============================================================ */
 /* 3. ANDROID — Material: плоско, прямые углы, акцентный синий   */
@@ -1095,14 +1123,14 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 /* ============================================================ */
 
 [data-skin="nokia"] {
-    --ph-bg: #9ead6b;
-    --ph-chrome: #8d9d5d;
-    --ph-line: #6f7d47;
-    --ph-text: #1c2410;
-    --ph-dim: #46532b;
+    --ph-bg: #16210f;
+    --ph-chrome: #1e2c14;
+    --ph-line: #3a5227;
+    --ph-text: #b6d98a;
+    --ph-dim: #6f8a4c;
     --ph-in: transparent;
     --ph-out: transparent;
-    --ph-accent: #1c2410;
+    --ph-accent: #b6d98a;
     --ph-face: ui-monospace, "Courier New", monospace;
     --ph-mono: ui-monospace, "Courier New", monospace;
     border-radius: 10px;
@@ -1118,16 +1146,16 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 }
 
 [data-skin="nokia"] .ivyph-head {
-    background: var(--ph-text);
-    color: var(--ph-bg);
-    border-bottom: 0;
+    background: var(--ph-chrome);
+    color: var(--ph-text);
+    border-bottom: 2px solid var(--ph-line);
     font: 700 13px/1 var(--ph-mono);
     text-transform: uppercase;
     letter-spacing: .12em;
     padding: 9px 12px;
 }
 
-[data-skin="nokia"] .ivyph-title small { color: var(--ph-bg); opacity: .7; }
+[data-skin="nokia"] .ivyph-title small { color: var(--ph-dim); }
 [data-skin="nokia"] .ivyph-thread { background: var(--ph-bg); gap: 2px; padding: 8px; }
 
 [data-skin="nokia"] .ivyph-bub {
@@ -1148,8 +1176,8 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 [data-skin="nokia"] .ivyph-avatar,
 [data-skin="nokia"] .ivyph-call-avatar {
     border-radius: 0;
-    background: var(--ph-text);
-    color: var(--ph-bg);
+    background: var(--ph-line);
+    color: var(--ph-text);
 }
 
 [data-skin="nokia"] .ivyph-avatar img,
@@ -1157,7 +1185,7 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 
 [data-skin="nokia"] .ivyph-row { border-bottom: 1px dotted var(--ph-line); }
 [data-skin="nokia"] .ivyph-row:hover { background: var(--ph-chrome); }
-[data-skin="nokia"] .ivyph-dot { border-radius: 0; background: var(--ph-text); }
+[data-skin="nokia"] .ivyph-dot { border-radius: 0; background: var(--ph-accent); color: var(--ph-bg); }
 
 [data-skin="nokia"] .ivyph-compose {
     background: var(--ph-chrome);
@@ -1174,8 +1202,8 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 
 [data-skin="nokia"] .ivyph-send {
     border-radius: 0;
-    background: var(--ph-text);
-    color: var(--ph-bg);
+    background: var(--ph-line);
+    color: var(--ph-text);
 }
 
 [data-skin="nokia"] .ivyph-dock {
@@ -1188,7 +1216,17 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 [data-skin="nokia"] .ivyph-picker { border-radius: 0; background: var(--ph-chrome); }
 [data-skin="nokia"] .ivyph-react { border-radius: 0; background: var(--ph-chrome); }
 [data-skin="nokia"] .ivyph-shot { border-color: var(--ph-line); background: var(--ph-chrome); }
-[data-skin="nokia"] .ivyph-shot-btn { background: var(--ph-text); color: var(--ph-bg); border-radius: 0; }
+[data-skin="nokia"] .ivyph-shot-btn { background: var(--ph-line); color: var(--ph-text); border-radius: 0; }
+[data-skin="nokia"] .ivyph-form input,
+[data-skin="nokia"] .ivyph-form textarea,
+[data-skin="nokia"] .ivyph-edit-box {
+    background: var(--ph-bg);
+    color: var(--ph-text);
+    border: 1px solid var(--ph-line);
+    border-radius: 0;
+    font-family: var(--ph-mono);
+}
+[data-skin="nokia"] .ivyph-primary { background: var(--ph-line); color: var(--ph-text); border-radius: 0; }
 
 /* ---------------------------------------------------------- wand menu */
 
@@ -2013,6 +2051,7 @@ const ICONS = {
     message: '<path d="M20.6 12.2c0 3.9-3.8 7.1-8.5 7.1-1 0-2-.15-2.9-.42L4.2 20.6l1.4-3.6c-1.3-1.3-2.1-3-2.1-4.8 0-3.9 3.8-7.1 8.5-7.1s8.6 3.2 8.6 7.1Z"/>',
     messageOff: '<path d="M20.6 12.2c0 3.9-3.8 7.1-8.5 7.1-1 0-2-.15-2.9-.42L4.2 20.6l1.4-3.6c-1.3-1.3-2.1-3-2.1-4.8 0-3.9 3.8-7.1 8.5-7.1s8.6 3.2 8.6 7.1Z"/><line x1="3.4" y1="20.8" x2="20.6" y2="3.6"/>',
     user: '<circle cx="12" cy="8.4" r="3.7"/><path d="M4.9 20c.9-3.5 3.6-5.5 7.1-5.5s6.2 2 7.1 5.5"/>',
+    group: '<circle cx="9" cy="9" r="3.1"/><path d="M3.4 19.4c.7-2.9 2.9-4.6 5.6-4.6s4.9 1.7 5.6 4.6"/><path d="M15.6 6.2a3.1 3.1 0 0 1 0 5.9"/><path d="M17 14.9c2.2.3 3.9 1.9 4.5 4.4"/>',
     phone: '<path d="M7 3.6h3l1.5 4-2 1.5a12 12 0 0 0 5.4 5.4l1.5-2 4 1.5v3a1.6 1.6 0 0 1-1.8 1.6C11.3 18 6 12.7 5.4 5.4A1.6 1.6 0 0 1 7 3.6Z"/>',
     phoneOff: '<path d="M7 3.6h3l1.5 4-2 1.5a12 12 0 0 0 5.4 5.4l1.5-2 4 1.5v3a1.6 1.6 0 0 1-1.8 1.6C11.3 18 6 12.7 5.4 5.4A1.6 1.6 0 0 1 7 3.6Z"/><line x1="3.2" y1="20.8" x2="20.8" y2="3.2"/>',
     arrowUp: '<line x1="12" y1="19" x2="12" y2="5.4"/><polyline points="6.4,10.9 12,5.3 17.6,10.9"/>',
@@ -2117,6 +2156,10 @@ function shown(c) {
     return (c?.label || '').trim() || c?.name || '';
 }
 
+function groupAvatar(name, cls = 'ivyph-avatar') {
+    return `<span class="${cls} ivyph-avatar-group" style="--tint:#4a6355">${icon('group')}</span>`;
+}
+
 // Как контакт подписан у тебя в телефоне. В модель это никогда не уходит.
 function shownName(c) {
     return (c?.display || '').trim() || c?.name || '';
@@ -2140,21 +2183,40 @@ function clock(ts) {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-// Время внутри игры. Приоритет: маркер TIME → макрос из настроек → реальные часы.
-function fromMacro(tpl) {
-    if (!tpl || !tpl.trim()) return '';
+// Читаем переменную таверны напрямую: substituteParams в части сборок
+// не раскрывает getvar и возвращает {{...}} как есть.
+function readVar(name) {
     try {
-        const out = String(getContext().substituteParams(tpl) || '').trim();
-        return out && !out.includes('{{') ? out : '';
-    } catch { return ''; }
+        const ctx = getContext();
+        const scope = ctx.chatMetadata?.variables || chat_metadata?.variables || {};
+        if (scope[name] != null && String(scope[name]).trim()) return String(scope[name]).trim();
+        const globals = ctx.extensionSettings?.variables?.global
+            || extension_settings?.variables?.global || {};
+        if (globals[name] != null && String(globals[name]).trim()) return String(globals[name]).trim();
+    } catch { /* нет доступа */ }
+    return '';
 }
 
+// Макрос из поля настроек. Сначала вытаскиваем getvar напрямую, потом,
+// если осталось что-то другое, отдаём на общий substituteParams.
+function fromMacro(tpl) {
+    if (!tpl || !tpl.trim()) return '';
+    let out = tpl.replace(/\{\{getvar::([^}]+)\}\}/g, (_, n) => readVar(n.trim()));
+    if (out.includes('{{')) {
+        try { out = String(getContext().substituteParams(out) || ''); } catch { /* ignore */ }
+    }
+    out = out.trim();
+    return out && !out.includes('{{') ? out : '';
+}
+
+// Живой макрос важнее сохранённого маркера: сцена движется, а store().time
+// мог застрять со старым TIME. Маркер — только запасной вариант.
 function gameClock() {
-    return store().time || fromMacro(settings().timeMacro) || clock();
+    return fromMacro(settings().timeMacro) || store().time || clock();
 }
 
 function gameDate() {
-    return store().date || fromMacro(settings().dateMacro) || '';
+    return fromMacro(settings().dateMacro) || store().date || '';
 }
 
 function stampOf(e) {
@@ -2416,7 +2478,7 @@ function renderContacts() {
 
     const groupRows = Object.values(store().groups).map(g => `
         <li class="ivyph-row">
-            <span class="ivyph-avatar" style="--tint:#4a6355">${esc(g.name[0].toUpperCase())}</span>
+            ${groupAvatar(g.name)}
             <span class="ivyph-row-body">
                 <span class="ivyph-row-top"><b>${esc(g.name)}</b></span>
                 <span class="ivyph-row-sub">${esc(g.members.join(', ') || 'group')}</span>

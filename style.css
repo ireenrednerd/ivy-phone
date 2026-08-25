@@ -260,6 +260,9 @@
     font: 600 15px/1 var(--ph-face);
 }
 
+.ivyph-avatar-group .ivyph-i { width: 22px; height: 22px; }
+.ivyph-call-avatar.ivyph-avatar-group .ivyph-i { width: 48px; height: 48px; }
+
 .ivyph-avatar img,
 .ivyph-call-avatar img {
     position: absolute;
@@ -966,13 +969,13 @@
 [data-skin="iphone4"] .ivyph-screen,
 [data-skin="iphone4"] .ivyph-thread {
     background: repeating-linear-gradient(
-        180deg, #d9dbde 0 22px, #d2d5d8 22px 44px
+        180deg, #eef0f2 0 22px, #e6e8ea 22px 44px
     );
 }
 
-[data-skin="iphone4"] .ivyph-list { background: #d9dbde; }
-[data-skin="iphone4"] .ivyph-row { border-bottom: 1px solid #b9bdc2; }
-[data-skin="iphone4"] .ivyph-row:hover { background: #cfd2d6; }
+[data-skin="iphone4"] .ivyph-list { background: #eef0f2; }
+[data-skin="iphone4"] .ivyph-row { border-bottom: 1px solid #c9cdd2; }
+[data-skin="iphone4"] .ivyph-row:hover { background: #e2e5e8; }
 [data-skin="iphone4"] .ivyph-row-top b { color: #1a1d21; }
 [data-skin="iphone4"] .ivyph-row-sub { color: #5c636b; }
 [data-skin="iphone4"] .ivyph-row-top time { color: #6d747c; }
@@ -1020,6 +1023,31 @@
 [data-skin="iphone4"] .ivyph-empty { color: #5c636b; }
 [data-skin="iphone4"] .ivyph-empty p { color: #1a1d21; }
 [data-skin="iphone4"] .ivyph-title small { color: #d6dbe0; }
+
+[data-skin="iphone4"] .ivyph-form input,
+[data-skin="iphone4"] .ivyph-form textarea,
+[data-skin="iphone4"] .ivyph-edit-box {
+    background: #fff;
+    color: #16181b;
+    border: 1px solid #b9bdc2;
+}
+
+[data-skin="iphone4"] .ivyph-form label { color: #5c636b; }
+[data-skin="iphone4"] .ivyph-check { color: #1a1d21 !important; }
+[data-skin="iphone4"] .ivyph-shot { background: #e2e5e8; border-color: #b9bdc2; }
+[data-skin="iphone4"] .ivyph-shot-desc { color: #5c636b; }
+[data-skin="iphone4"] .ivyph-mini { background: #fff; color: #16181b; border-color: #b9bdc2; }
+[data-skin="iphone4"] .ivyph-subhead { background: #e6e8ea; color: #5c636b; }
+[data-skin="iphone4"] .ivyph-msgtools button { background: #fff; color: #3a3f45; border-color: #b9bdc2; }
+[data-skin="iphone4"] .ivyph-react,
+[data-skin="iphone4"] .ivyph-picker { background: #fff; border-color: #b9bdc2; }
+[data-skin="iphone4"] .ivyph-callscreen {
+    background: radial-gradient(90% 55% at 50% 22%, #e6e8ea, #cdd1d5);
+}
+[data-skin="iphone4"] .ivyph-call-name { color: #16181b; }
+[data-skin="iphone4"] .ivyph-call-number { color: #5c636b; }
+[data-skin="iphone4"] .ivyph-call-label { color: #5c636b; }
+[data-skin="iphone4"] .ivyph-call-btn { color: #3a3f45; }
 
 /* ============================================================ */
 /* 3. ANDROID — Material: плоско, прямые углы, акцентный синий   */
@@ -1084,14 +1112,14 @@
 /* ============================================================ */
 
 [data-skin="nokia"] {
-    --ph-bg: #9ead6b;
-    --ph-chrome: #8d9d5d;
-    --ph-line: #6f7d47;
-    --ph-text: #1c2410;
-    --ph-dim: #46532b;
+    --ph-bg: #16210f;
+    --ph-chrome: #1e2c14;
+    --ph-line: #3a5227;
+    --ph-text: #b6d98a;
+    --ph-dim: #6f8a4c;
     --ph-in: transparent;
     --ph-out: transparent;
-    --ph-accent: #1c2410;
+    --ph-accent: #b6d98a;
     --ph-face: ui-monospace, "Courier New", monospace;
     --ph-mono: ui-monospace, "Courier New", monospace;
     border-radius: 10px;
@@ -1107,16 +1135,16 @@
 }
 
 [data-skin="nokia"] .ivyph-head {
-    background: var(--ph-text);
-    color: var(--ph-bg);
-    border-bottom: 0;
+    background: var(--ph-chrome);
+    color: var(--ph-text);
+    border-bottom: 2px solid var(--ph-line);
     font: 700 13px/1 var(--ph-mono);
     text-transform: uppercase;
     letter-spacing: .12em;
     padding: 9px 12px;
 }
 
-[data-skin="nokia"] .ivyph-title small { color: var(--ph-bg); opacity: .7; }
+[data-skin="nokia"] .ivyph-title small { color: var(--ph-dim); }
 [data-skin="nokia"] .ivyph-thread { background: var(--ph-bg); gap: 2px; padding: 8px; }
 
 [data-skin="nokia"] .ivyph-bub {
@@ -1137,8 +1165,8 @@
 [data-skin="nokia"] .ivyph-avatar,
 [data-skin="nokia"] .ivyph-call-avatar {
     border-radius: 0;
-    background: var(--ph-text);
-    color: var(--ph-bg);
+    background: var(--ph-line);
+    color: var(--ph-text);
 }
 
 [data-skin="nokia"] .ivyph-avatar img,
@@ -1146,7 +1174,7 @@
 
 [data-skin="nokia"] .ivyph-row { border-bottom: 1px dotted var(--ph-line); }
 [data-skin="nokia"] .ivyph-row:hover { background: var(--ph-chrome); }
-[data-skin="nokia"] .ivyph-dot { border-radius: 0; background: var(--ph-text); }
+[data-skin="nokia"] .ivyph-dot { border-radius: 0; background: var(--ph-accent); color: var(--ph-bg); }
 
 [data-skin="nokia"] .ivyph-compose {
     background: var(--ph-chrome);
@@ -1163,8 +1191,8 @@
 
 [data-skin="nokia"] .ivyph-send {
     border-radius: 0;
-    background: var(--ph-text);
-    color: var(--ph-bg);
+    background: var(--ph-line);
+    color: var(--ph-text);
 }
 
 [data-skin="nokia"] .ivyph-dock {
@@ -1177,7 +1205,17 @@
 [data-skin="nokia"] .ivyph-picker { border-radius: 0; background: var(--ph-chrome); }
 [data-skin="nokia"] .ivyph-react { border-radius: 0; background: var(--ph-chrome); }
 [data-skin="nokia"] .ivyph-shot { border-color: var(--ph-line); background: var(--ph-chrome); }
-[data-skin="nokia"] .ivyph-shot-btn { background: var(--ph-text); color: var(--ph-bg); border-radius: 0; }
+[data-skin="nokia"] .ivyph-shot-btn { background: var(--ph-line); color: var(--ph-text); border-radius: 0; }
+[data-skin="nokia"] .ivyph-form input,
+[data-skin="nokia"] .ivyph-form textarea,
+[data-skin="nokia"] .ivyph-edit-box {
+    background: var(--ph-bg);
+    color: var(--ph-text);
+    border: 1px solid var(--ph-line);
+    border-radius: 0;
+    font-family: var(--ph-mono);
+}
+[data-skin="nokia"] .ivyph-primary { background: var(--ph-line); color: var(--ph-text); border-radius: 0; }
 
 /* ---------------------------------------------------------- wand menu */
 
