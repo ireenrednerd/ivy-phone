@@ -26,13 +26,24 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
     --ph-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
+/* ---------------------------------------------------------- visibility */
+/* Атрибут hidden обязан побеждать display:flex ниже по файлу.
+   Без !important правило автора перекрывает встроенное [hidden]
+   и телефон невозможно закрыть. */
+
+.ivyph-overlay[hidden],
+.ivyph-launcher[hidden],
+.ivyph-badge[hidden] {
+    display: none !important;
+}
+
 /* ---------------------------------------------------------- launcher */
 
 .ivyph-launcher {
-    position: fixed;
+    position: fixed !important;
     top: 64px;
     right: 14px;
-    z-index: 3000;
+    z-index: 99999;
     width: 42px;
     height: 42px;
     display: grid;
@@ -91,9 +102,9 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 /* ---------------------------------------------------------- shell */
 
 .ivyph-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 3100;
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 100000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -238,6 +249,8 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 
 .ivyph-avatar {
     flex: none;
+    position: relative;
+    overflow: hidden;
     width: 38px;
     height: 38px;
     border-radius: 50%;
@@ -246,6 +259,15 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
     background: var(--tint, #3d4a55);
     color: #fff;
     font: 600 15px/1 var(--ph-face);
+}
+
+.ivyph-avatar img,
+.ivyph-call-avatar img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .ivyph-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
@@ -487,6 +509,29 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 
 .ivyph-form input[type="color"] { padding: 2px; height: 34px; width: 60px; }
 
+.ivyph-avatar-pick {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ivyph-avatar-lg { width: 52px; height: 52px; font-size: 20px; }
+
+.ivyph-mini {
+    padding: 6px 10px;
+    border: 1px solid var(--ph-line);
+    border-radius: 7px;
+    background: #1a2026;
+    color: var(--ph-text);
+    font: 500 12px var(--ph-face);
+    text-transform: none;
+    letter-spacing: 0;
+    cursor: pointer;
+}
+
+.ivyph-mini:hover { background: #222a31; }
+.ivyph-mini-off { color: #c9695b; }
+
 .ivyph-form-actions { display: flex; gap: 10px; margin-top: 4px; }
 
 .ivyph-primary,
@@ -525,6 +570,8 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 }
 
 .ivyph-call-avatar {
+    position: relative;
+    overflow: hidden;
     width: 96px;
     height: 96px;
     margin: 16px 0 10px;
@@ -610,7 +657,9 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 @media (max-width: 520px) {
     .ivyph-device {
         width: 100vw;
+        height: 100vh;
         height: 100dvh;
+        max-height: none;
         border-radius: 0;
         border: 0;
         box-shadow: none;
@@ -633,6 +682,356 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 
 .ivyph-settings label { display: block; margin-top: 8px; font-size: 12px; }
 .ivyph-settings .text_pole { width: 100%; }
+
+/* ============================================================ */
+/* SKINS                                                        */
+/* Каждая оболочка переопределяет переменные и точечно правит    */
+/* форму. Разметка одна и та же — меняется только внешний вид.   */
+/* ============================================================ */
+
+/* ---- новые элементы: реакции, группы, палочка ---- */
+
+.ivyph-who {
+    display: block;
+    margin-bottom: 3px;
+    font: 600 11px var(--ph-face);
+    color: var(--ph-accent, #8fb0a0);
+    letter-spacing: .02em;
+}
+
+.ivyph-react {
+    position: absolute;
+    right: 6px;
+    bottom: -9px;
+    padding: 1px 5px;
+    border-radius: 10px;
+    background: var(--ph-chrome);
+    border: 1px solid var(--ph-line);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.ivyph-bub { position: relative; }
+
+.ivyph-picker {
+    align-self: center;
+    display: flex;
+    gap: 2px;
+    margin: 2px 0 6px;
+    padding: 4px 6px;
+    border-radius: 18px;
+    background: var(--ph-chrome);
+    border: 1px solid var(--ph-line);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .4);
+}
+
+.ivyph-picker button {
+    border: 0;
+    background: transparent;
+    font-size: 17px;
+    line-height: 1;
+    padding: 3px 4px;
+    cursor: pointer;
+    transition: transform .12s;
+}
+
+.ivyph-picker button:hover { transform: scale(1.25); }
+
+.ivyph-scam { opacity: .82; border: 1px dashed #6b5340; }
+
+.ivyph-spacer { width: 26px; flex: none; }
+
+/* ============================================================ */
+/* 1. MODERN — крупные радиусы, вырез, плавающая полоса          */
+/* ============================================================ */
+
+[data-skin="modern"] {
+    --ph-bg: #0d0f12;
+    --ph-chrome: #16191e;
+    --ph-line: #262b33;
+    --ph-text: #f2f4f6;
+    --ph-dim: #8a929c;
+    --ph-in: #23272e;
+    --ph-out: #2f6b4f;
+    --ph-accent: #7fd1a5;
+    border-radius: 34px;
+}
+
+[data-skin="modern"] .ivyph-status {
+    background: var(--ph-bg);
+    border-bottom: 0;
+    padding-top: 12px;
+    font-weight: 600;
+}
+
+[data-skin="modern"] .ivyph-head {
+    background: rgba(22, 25, 30, .82);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255, 255, 255, .06);
+    font-size: 16px;
+}
+
+[data-skin="modern"] .ivyph-bub {
+    border-radius: 20px;
+    font-size: 15px;
+}
+
+[data-skin="modern"] .ivyph-in { border-bottom-left-radius: 7px; }
+[data-skin="modern"] .ivyph-out { border-bottom-right-radius: 7px; }
+
+[data-skin="modern"] .ivyph-compose textarea { border-radius: 20px; }
+[data-skin="modern"] .ivyph-dock { background: rgba(22, 25, 30, .9); backdrop-filter: blur(12px); }
+[data-skin="modern"] .ivyph-avatar { width: 42px; height: 42px; }
+
+/* ============================================================ */
+/* 2. IPHONE 4S — скевоморфизм 2011: глянец, засечки, полосы     */
+/* ============================================================ */
+
+[data-skin="iphone4"] {
+    --ph-bg: #1b1d21;
+    --ph-chrome: #3d4650;
+    --ph-line: #20242a;
+    --ph-text: #ffffff;
+    --ph-dim: #b9c2cb;
+    --ph-in: #e6e8ea;
+    --ph-out: #86d15b;
+    --ph-accent: #2f6fb5;
+    --ph-face: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    border-radius: 6px;
+}
+
+[data-skin="iphone4"] .ivyph-status {
+    background: linear-gradient(180deg, #6f7c88 0%, #414a54 48%, #2f363d 52%, #1f242a 100%);
+    color: #fff;
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, .6);
+    border-bottom: 1px solid #12151a;
+}
+
+[data-skin="iphone4"] .ivyph-clock { color: #fff; font-weight: 700; }
+
+[data-skin="iphone4"] .ivyph-head {
+    background: linear-gradient(180deg, #8b96a2 0%, #566370 50%, #45505b 51%, #333c46 100%);
+    border-bottom: 1px solid #1d2228;
+    color: #fff;
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, .5);
+    font-weight: 700;
+}
+
+[data-skin="iphone4"] .ivyph-screen,
+[data-skin="iphone4"] .ivyph-thread {
+    background: repeating-linear-gradient(
+        180deg, #d9dbde 0 22px, #d2d5d8 22px 44px
+    );
+}
+
+[data-skin="iphone4"] .ivyph-list { background: #d9dbde; }
+[data-skin="iphone4"] .ivyph-row { border-bottom: 1px solid #b9bdc2; }
+[data-skin="iphone4"] .ivyph-row:hover { background: #cfd2d6; }
+[data-skin="iphone4"] .ivyph-row-top b { color: #1a1d21; }
+[data-skin="iphone4"] .ivyph-row-sub { color: #5c636b; }
+[data-skin="iphone4"] .ivyph-row-top time { color: #6d747c; }
+
+[data-skin="iphone4"] .ivyph-bub {
+    border-radius: 15px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7), 0 1px 2px rgba(0, 0, 0, .25);
+    font-size: 14.5px;
+}
+
+[data-skin="iphone4"] .ivyph-in {
+    background: linear-gradient(180deg, #ffffff, #dcdfe2);
+    color: #16181b;
+}
+
+[data-skin="iphone4"] .ivyph-out {
+    background: linear-gradient(180deg, #a6e77f, #5cb135);
+    color: #10240a;
+}
+
+[data-skin="iphone4"] .ivyph-bub time { opacity: .5; }
+
+[data-skin="iphone4"] .ivyph-compose {
+    background: linear-gradient(180deg, #b6bcc3, #8d959e);
+    border-top: 1px solid #6d747c;
+}
+
+[data-skin="iphone4"] .ivyph-compose textarea {
+    background: #fff;
+    color: #16181b;
+    border: 1px solid #6d747c;
+    border-radius: 15px;
+}
+
+[data-skin="iphone4"] .ivyph-send {
+    background: linear-gradient(180deg, #a6e77f, #4f9f2c);
+    border: 1px solid #3d7d22;
+}
+
+[data-skin="iphone4"] .ivyph-dock {
+    background: linear-gradient(180deg, #4c555f, #232a31);
+    border-top: 1px solid #12151a;
+}
+
+[data-skin="iphone4"] .ivyph-empty { color: #5c636b; }
+[data-skin="iphone4"] .ivyph-empty p { color: #1a1d21; }
+[data-skin="iphone4"] .ivyph-title small { color: #d6dbe0; }
+
+/* ============================================================ */
+/* 3. ANDROID — Material: плоско, прямые углы, акцентный синий   */
+/* ============================================================ */
+
+[data-skin="android"] {
+    --ph-bg: #121417;
+    --ph-chrome: #1f2226;
+    --ph-line: #2e3339;
+    --ph-text: #e8eaed;
+    --ph-dim: #9aa0a6;
+    --ph-in: #2a2f35;
+    --ph-out: #1a5b8f;
+    --ph-accent: #8ab4f8;
+    --ph-face: Roboto, "Segoe UI", system-ui, sans-serif;
+    border-radius: 14px;
+}
+
+[data-skin="android"] .ivyph-status {
+    background: var(--ph-chrome);
+    border-bottom: 0;
+    font-size: 12px;
+}
+
+[data-skin="android"] .ivyph-head {
+    background: var(--ph-chrome);
+    border-bottom: 0;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+    justify-content: flex-start;
+    padding-left: 18px;
+    font-weight: 500;
+    font-size: 17px;
+}
+
+[data-skin="android"] .ivyph-title { align-items: flex-start; }
+
+[data-skin="android"] .ivyph-bub {
+    border-radius: 17px;
+    font-size: 14.5px;
+}
+
+[data-skin="android"] .ivyph-in { border-bottom-left-radius: 4px; }
+[data-skin="android"] .ivyph-out { border-bottom-right-radius: 4px; }
+
+[data-skin="android"] .ivyph-send {
+    background: var(--ph-accent);
+    color: #0b1a2b;
+    border-radius: 50%;
+}
+
+[data-skin="android"] .ivyph-dock {
+    background: var(--ph-chrome);
+    border-top: 1px solid var(--ph-line);
+}
+
+[data-skin="android"] .ivyph-dock-btn { text-transform: none; letter-spacing: .02em; }
+[data-skin="android"] .ivyph-avatar { border-radius: 50%; }
+[data-skin="android"] .ivyph-primary { background: var(--ph-accent); color: #0b1a2b; }
+
+/* ============================================================ */
+/* 4. NOKIA — монохромный ЖК, пиксельный шрифт, без пузырей      */
+/* ============================================================ */
+
+[data-skin="nokia"] {
+    --ph-bg: #9ead6b;
+    --ph-chrome: #8d9d5d;
+    --ph-line: #6f7d47;
+    --ph-text: #1c2410;
+    --ph-dim: #46532b;
+    --ph-in: transparent;
+    --ph-out: transparent;
+    --ph-accent: #1c2410;
+    --ph-face: ui-monospace, "Courier New", monospace;
+    --ph-mono: ui-monospace, "Courier New", monospace;
+    border-radius: 10px;
+    box-shadow: 0 0 0 8px #2b2b2b, 0 24px 60px rgba(0, 0, 0, .6);
+}
+
+[data-skin="nokia"] .ivyph-status {
+    background: var(--ph-chrome);
+    border-bottom: 2px solid var(--ph-line);
+    color: var(--ph-text);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+[data-skin="nokia"] .ivyph-head {
+    background: var(--ph-text);
+    color: var(--ph-bg);
+    border-bottom: 0;
+    font: 700 13px/1 var(--ph-mono);
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    padding: 9px 12px;
+}
+
+[data-skin="nokia"] .ivyph-title small { color: var(--ph-bg); opacity: .7; }
+[data-skin="nokia"] .ivyph-thread { background: var(--ph-bg); gap: 2px; padding: 8px; }
+
+[data-skin="nokia"] .ivyph-bub {
+    max-width: 100%;
+    border-radius: 0;
+    padding: 5px 6px;
+    border-bottom: 1px dotted var(--ph-line);
+    font-size: 13px;
+    box-shadow: none;
+}
+
+[data-skin="nokia"] .ivyph-in::before { content: "< "; opacity: .6; }
+[data-skin="nokia"] .ivyph-out::before { content: "> "; opacity: .6; }
+[data-skin="nokia"] .ivyph-out { align-self: stretch; text-align: left; }
+[data-skin="nokia"] .ivyph-in { align-self: stretch; }
+[data-skin="nokia"] .ivyph-bub time { text-align: left; opacity: .55; }
+
+[data-skin="nokia"] .ivyph-avatar,
+[data-skin="nokia"] .ivyph-call-avatar {
+    border-radius: 0;
+    background: var(--ph-text);
+    color: var(--ph-bg);
+}
+
+[data-skin="nokia"] .ivyph-avatar img,
+[data-skin="nokia"] .ivyph-call-avatar img { filter: grayscale(1) contrast(1.6); }
+
+[data-skin="nokia"] .ivyph-row { border-bottom: 1px dotted var(--ph-line); }
+[data-skin="nokia"] .ivyph-row:hover { background: var(--ph-chrome); }
+[data-skin="nokia"] .ivyph-dot { border-radius: 0; background: var(--ph-text); }
+
+[data-skin="nokia"] .ivyph-compose {
+    background: var(--ph-chrome);
+    border-top: 2px solid var(--ph-line);
+}
+
+[data-skin="nokia"] .ivyph-compose textarea {
+    background: var(--ph-bg);
+    color: var(--ph-text);
+    border: 1px solid var(--ph-line);
+    border-radius: 0;
+    font-family: var(--ph-mono);
+}
+
+[data-skin="nokia"] .ivyph-send {
+    border-radius: 0;
+    background: var(--ph-text);
+    color: var(--ph-bg);
+}
+
+[data-skin="nokia"] .ivyph-dock {
+    background: var(--ph-chrome);
+    border-top: 2px solid var(--ph-line);
+}
+
+[data-skin="nokia"] .ivyph-dock-btn { color: var(--ph-dim); }
+[data-skin="nokia"] .ivyph-dock-btn:hover { color: var(--ph-text); }
+[data-skin="nokia"] .ivyph-picker { border-radius: 0; background: var(--ph-chrome); }
+[data-skin="nokia"] .ivyph-react { border-radius: 0; background: var(--ph-chrome); }
+[data-skin="nokia"] .ivyph-shot { border-color: var(--ph-line); background: var(--ph-chrome); }
+[data-skin="nokia"] .ivyph-shot-btn { background: var(--ph-text); color: var(--ph-bg); border-radius: 0; }
 `;
 
 function injectStyles() {
@@ -648,11 +1047,20 @@ const DEFAULTS = {
     enabled: true,
     hideMarkers: true,
     autoOpenOnCall: true,
-    autoTrigger: false,
+    replyMode: 'phone',
     autoPhotos: false,
     imageCommand: '/sd quiet=true {{prompt}}',
     timeMacro: '',
     dateMacro: '',
+    profile: '',
+    injectDepth: 4,
+    autoInject: true,
+    contextMode: 'full',
+    replyLength: 320,
+    compact: false,
+    prefill: '',
+    skin: 'modern',
+    scams: false,
     carrier: 'AT&T',
     ownerLabel: 'Я',
 };
@@ -673,10 +1081,11 @@ function settings() {
 
 function store() {
     if (!chat_metadata[MODULE]) {
-        chat_metadata[MODULE] = { version: 1, contacts: {}, events: [], time: '', date: '' };
+        chat_metadata[MODULE] = { version: 1, contacts: {}, groups: {}, events: [], time: '', date: '' };
     }
     const s = chat_metadata[MODULE];
     if (!s.contacts) s.contacts = {};
+    if (!s.groups) s.groups = {};
     if (!s.events) s.events = [];
     return s;
 }
@@ -707,6 +1116,8 @@ function addEvent(data) {
         type: 'sms',
         dir: 'in',
         from: '',
+        group: '',
+        reaction: '',
         text: '',
         prompt: '',
         image: '',
@@ -778,18 +1189,26 @@ function parseLine(line, mesId) {
         dir = parts.pop().toLowerCase();
     }
 
-    const from = parts.shift() || '';
+    let from = parts.shift() || '';
     if (!from) return null;
+
+    // «Arthur@Crew» — сообщение от Артура в групповой чат Crew
+    let group = '';
+    if (from.includes('@')) {
+        const [who, where] = from.split('@');
+        from = who.trim();
+        group = where.trim();
+    }
 
     switch (verb) {
         case 'SMS':
         case 'MSG':
-            return addEvent({ mesId, type: 'sms', dir, from, text: parts.join('|') });
+            return addEvent({ mesId, type: 'sms', dir, from, group, text: parts.join('|') });
 
         case 'PHOTO':
         case 'IMG':
             return addEvent({
-                mesId, type: 'photo', dir, from,
+                mesId, type: 'photo', dir, from, group,
                 prompt: parts.shift() || '',
                 text: parts.join('|'),
                 state: 'idle',
@@ -802,6 +1221,22 @@ function parseLine(line, mesId) {
             const status = (parts.shift() || 'incoming').toLowerCase();
             return addEvent({ mesId, type: 'call', dir, from, status, dur: parts.shift() || '' });
         }
+
+        case 'GROUP': {
+            const s = store();
+            const key = keyOf(from);
+            s.groups[key] = {
+                key,
+                name: from,
+                members: (parts.shift() || '').split(',').map(x => x.trim()).filter(Boolean),
+            };
+            s.groups[key].members.forEach(m => contact(m));
+            save();
+            return null;
+        }
+
+        case 'SCAM':
+            return addEvent({ mesId, type: 'sms', dir: 'in', from, text: parts.join('|'), scam: true });
 
         case 'TIME': {
             const s = store();
@@ -868,6 +1303,158 @@ async function generatePhoto(ev) {
     render();
 }
 
+// ---------------------------------------------------------------- generation
+// Телефон умеет генерировать ответ сам, отдельным запросом. Это позволяет
+// второстепенному персонажу отвечать своим голосом, а не устами активной
+// карточки. Профиль подключения берётся из настроек: можно поставить
+// модель дешевле основной.
+
+const REACTIONS = ['\u2764\uFE0F', '\uD83D\uDE02', '\uD83D\uDC4D', '\uD83D\uDE2E', '\uD83D\uDE22', '\uD83D\uDD25'];
+
+const SCAM_POOL = [
+    'FINAL NOTICE: your vehicle warranty is about to expire. Reply YES to renew.',
+    'Your package could not be delivered. Update your address: bit.ly/2pkgfix',
+    'Congratulations! You have been selected for a $1,000 gift card. Claim within 24h.',
+    'Bank alert: unusual sign-in detected. Verify your identity to avoid suspension.',
+    'Hey, is this still your number? I got it from an old friend :)',
+];
+
+const debugLog = [];
+
+function logDebug(msg) {
+    debugLog.push(`${new Date().toLocaleTimeString()} — ${msg}`);
+    if (debugLog.length > 40) debugLog.shift();
+}
+
+function sceneContext(limit = 6) {
+    try {
+        const ctx = getContext();
+        return (ctx.chat || [])
+            .slice(-limit)
+            .map(m => `${m.name}: ${String(m.mes).replace(BLOCK_RE, '').trim()}`)
+            .filter(Boolean)
+            .join('\n');
+    } catch { return ''; }
+}
+
+function cardContext() {
+    try {
+        const ctx = getContext();
+        const cid = ctx.characterId ?? ctx.this_chid;
+        const ch = (ctx.characters || [])[cid];
+        const bits = [];
+        if (ch?.description) bits.push(`Setting and cast:\n${ch.description}`);
+        if (ctx.name1) bits.push(`The phone owner is ${ctx.name1}.`);
+        return bits.join('\n\n');
+    } catch { return ''; }
+}
+
+function buildReplyPrompt(c, outgoing) {
+    const s = settings();
+    const thread = store().events
+        .filter(e => keyOf(e.from) === c.key && e.type === 'sms')
+        .slice(-12)
+        .map(e => `${e.dir === 'out' ? 'OWNER' : c.name}: ${e.text}`)
+        .join('\n');
+
+    const parts = [];
+    if (s.contextMode === 'full') {
+        const card = cardContext();
+        if (card) parts.push(card);
+    }
+    parts.push(`Current scene:\n${sceneContext(s.contextMode === 'full' ? 8 : 4)}`);
+    if (c.anchor) parts.push(`${c.name}: ${c.anchor}`);
+    parts.push(`Text conversation so far:\n${thread}`);
+    parts.push(
+        `Write the next text message from ${c.name} only. ` +
+        `Stay in character, match how they speak out loud. ` +
+        `Plain text under ${s.replyLength} characters, no quotation marks, no narration, no name prefix. ` +
+        `Texting style: short, casual, contractions, occasional typos are fine.`
+    );
+    return parts.filter(Boolean).join('\n\n');
+}
+
+async function askModel(prompt) {
+    const s = settings();
+    let previous = '';
+    try {
+        if (s.profile) {
+            const cur = await runSlash('/profile');
+            previous = String(cur?.pipe || '').trim();
+            await runSlash(`/profile ${s.profile}`);
+        }
+        const ctx = getContext();
+        if (typeof ctx.generateQuietPrompt === 'function') {
+            return await ctx.generateQuietPrompt(prompt, false, false, s.prefill || '');
+        }
+        const flat = prompt.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+        return String((await runSlash(`/genraw ${flat}`))?.pipe || '');
+    } catch (err) {
+        logDebug(`ошибка запроса: ${err?.message || err}`);
+        return '';
+    } finally {
+        if (previous) await runSlash(`/profile ${previous}`);
+    }
+}
+
+async function generateReply(c, outgoing) {
+    try {
+        let text = await askModel(buildReplyPrompt(c, outgoing));
+        text = String(text || '').trim().replace(/^["']|["']$/g, '');
+        if (!text) { logDebug(`пустой ответ от ${c.name}`); return; }
+
+        addEvent({ mesId: null, type: 'sms', dir: 'in', from: c.name, text });
+        save();
+        render();
+        logDebug(`ответ от ${c.name}: ${text.slice(0, 40)}…`);
+    } catch (err) {
+        logDebug(`ошибка генерации: ${err?.message || err}`);
+        console.error('[IVY Phone]', err);
+    }
+}
+
+// Мошенники: локальный пул, без запросов к модели и без трат токенов.
+function maybeScam() {
+    if (!settings().scams || Math.random() > 0.12) return;
+    const number = `+1 ${800 + Math.floor(Math.random() * 99)} 555 0${100 + Math.floor(Math.random() * 899)}`;
+    addEvent({
+        mesId: null, type: 'sms', dir: 'in', from: number,
+        text: SCAM_POOL[Math.floor(Math.random() * SCAM_POOL.length)], scam: true,
+    });
+    save();
+    render();
+}
+
+// ---------------------------------------------------------------- injection
+// Инструкция уходит инжектом на заданную глубину, а не правкой пресета.
+
+function instructionText() {
+    const s = settings();
+    if (s.compact) {
+        return '[Phone] To send texts, calls or photos, emit: [PHONE] SMS|Name|text / PHOTO|Name|english image prompt|caption / CALL|Name|incoming|missed / TIME|HH:MM|date [/PHONE]';
+    }
+    return [
+        '[Phone system]',
+        'When a character texts, calls, or sends a photo, put it in a [PHONE] block at the end of your reply.',
+        'One event per line, fields separated by |:',
+        'SMS|Name|message text',
+        'PHOTO|Name|english prompt describing the shot|caption',
+        'VOICE|Name|0:23',
+        'CALL|Name|incoming     (also: missed, declined, answered, ended|4:12)',
+        'CONTACT|Full Name|+1 206 555 0114|@handle',
+        'TIME|21:47|friday, august 12 2011',
+        'Rules: never repeat the text of a message in the prose — describe only the reaction.',
+        'Photo prompts in English, framing only: place, light, angle. Max 4 lines per block.',
+    ].join('\n');
+}
+
+async function pushInjection() {
+    const s = settings();
+    if (!s.autoInject || !s.enabled) return;
+    const flat = instructionText().replace(/\|/g, '\\|').replace(/\n/g, ' / ');
+    await runSlash(`/inject id=ivyphone position=chat depth=${s.injectDepth} scan=false ${flat}`);
+}
+
 // ---------------------------------------------------------------- hiding
 
 function scrubText(html) {
@@ -896,6 +1483,7 @@ const ICONS = {
     battery: '<rect x="1.5" y="7.5" width="17.5" height="9" rx="2.6" stroke-width="1.6"/><path d="M21.3 10.6v2.8" stroke-width="2.2"/><rect x="3.4" y="9.4" width="10.5" height="5.2" rx="1.4" fill="currentColor" stroke="none"/>',
     image: '<rect x="3" y="4.5" width="18" height="15" rx="2.4"/><circle cx="8.6" cy="9.8" r="1.7"/><path d="M3.4 17.2 8.9 12l4 3.6 3.2-2.6 4.5 4.2"/>',
     refresh: '<path d="M20.2 11.4a8.3 8.3 0 1 1-2.4-5.6"/><polyline points="20.6,3.6 20.6,9 15.2,9"/>',
+    wand: '<path d="M4.5 19.5 15 9"/><path d="M14 5.5 15.4 7 17 5.6 15.6 4.2Z"/><path d="M18.5 9.5v2.6M17.2 10.8h2.6M6.5 3.4v2M5.2 4.4h2.6"/>',
     chevronLeft: '<polyline points="14.5,4.8 8,12 14.5,19.2"/>',
     info: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="11.2" x2="12" y2="16.6"/><circle cx="12" cy="7.7" r="1" fill="currentColor" stroke="none"/>',
     plus: '<line x1="12" y1="5.2" x2="12" y2="18.8"/><line x1="5.2" y1="12" x2="18.8" y2="12"/>',
@@ -915,6 +1503,80 @@ function icon(name, extra = '') {
     return `<svg class="ivyph-i ${extra}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 }
 
+// ---------------------------------------------------------------- ST data
+// Тянем имена и аватарки из карточки персонажа, персоны и группового чата.
+// Всё в try/catch: поля контекста отличаются между версиями таверны,
+// и лучше остаться без аватарки, чем уронить расширение.
+
+function charAvatarUrl(file) {
+    if (!file || file === 'none') return '';
+    return `/thumbnail?type=avatar&file=${encodeURIComponent(file)}`;
+}
+
+function personaAvatarUrl(file) {
+    if (!file) return '';
+    return `/User Avatars/${encodeURIComponent(file)}`;
+}
+
+function syncFromContext() {
+    try {
+        const ctx = getContext();
+        const chars = ctx.characters || [];
+
+        const add = (ch) => {
+            if (!ch?.name) return;
+            const c = contact(ch.name);
+            if (c && !c.avatar) c.avatar = charAvatarUrl(ch.avatar);
+        };
+
+        // групповой чат: заводим карточку на каждого участника
+        const gid = ctx.groupId ?? ctx.group_id;
+        if (gid && Array.isArray(ctx.groups)) {
+            const g = ctx.groups.find(x => String(x.id) === String(gid));
+            (g?.members || []).forEach(file => add(chars.find(c => c.avatar === file)));
+        }
+
+        // одиночный чат
+        const cid = ctx.characterId ?? ctx.this_chid;
+        if (cid !== undefined && cid !== null && chars[cid]) add(chars[cid]);
+
+        // персона — владелец телефона
+        const s = store();
+        s.owner = {
+            name: ctx.name1 || 'Me',
+            avatar: personaAvatarUrl(ctx.userAvatar || ctx.user_avatar || ''),
+        };
+
+        save();
+    } catch (err) {
+        console.warn('[IVY Phone] не удалось прочитать контекст:', err);
+    }
+}
+
+// Номера из лорбука: ищем телефон рядом с именем уже известного контакта.
+async function syncFromLorebook() {
+    try {
+        const wi = await import('../../../world-info.js');
+        if (typeof wi.getSortedEntries !== 'function') return;
+        const entries = await wi.getSortedEntries();
+        const numberRe = /(\+?\d[\d\s\-()]{7,}\d)/;
+        let touched = false;
+
+        for (const c of Object.values(store().contacts)) {
+            if (c.number) continue;
+            const hit = entries.find(e => {
+                const text = `${(e.key || []).join(' ')} ${e.content || ''}`;
+                return text.toLowerCase().includes(c.name.toLowerCase()) && numberRe.test(text);
+            });
+            if (hit) {
+                c.number = (`${hit.content}`.match(numberRe) || [])[1]?.trim() || '';
+                touched = true;
+            }
+        }
+        if (touched) { save(); render(); }
+    } catch { /* лорбука может не быть, это нормально */ }
+}
+
 // ---------------------------------------------------------------- UI shell
 
 let ui = null;
@@ -925,6 +1587,15 @@ function el(tag, cls, html) {
     if (cls) n.className = cls;
     if (html !== undefined) n.innerHTML = html;
     return n;
+}
+
+function avatarHtml(c, cls = 'ivyph-avatar') {
+    const name = c?.name || '?';
+    const tint = c?.color || '#3d4a55';
+    const inner = c?.avatar
+        ? `<img src="${esc(c.avatar)}" alt="" onerror="this.remove()">`
+        : esc(name[0].toUpperCase());
+    return `<span class="${cls}" style="--tint:${esc(tint)}">${inner}</span>`;
 }
 
 function esc(s) {
@@ -961,26 +1632,27 @@ function buildShell() {
     if (ui) return;
 
     const launcher = el('div', 'ivyph-launcher');
-    launcher.title = 'Телефон';
+    launcher.title = 'Phone';
     launcher.innerHTML = `<div class="ivyph-launcher-glyph">${icon('device')}</div><span class="ivyph-badge" hidden>0</span>`;
     launcher.addEventListener('click', () => togglePhone());
     document.body.appendChild(launcher);
 
     const overlay = el('div', 'ivyph-overlay');
     overlay.hidden = true;
+    overlay.style.display = 'none';
     overlay.innerHTML = `
         <div class="ivyph-scrim"></div>
-        <div class="ivyph-device" role="dialog" aria-label="Телефон">
+        <div class="ivyph-device" data-skin="modern" role="dialog" aria-label="Phone">
             <div class="ivyph-status">
                 <span class="ivyph-carrier"></span>
                 <span class="ivyph-clock"></span>
-                <span class="ivyph-meta">${icon('wifi')}${icon('battery')}<button class="ivyph-close" title="Закрыть">${icon('close')}</button></span>
+                <span class="ivyph-meta">${icon('wifi')}${icon('battery')}<button class="ivyph-close" title="Close">${icon('close')}</button></span>
             </div>
             <div class="ivyph-screen"></div>
             <div class="ivyph-dock">
-                <button class="ivyph-dock-btn" data-go="home">${icon('message')}<span>Сообщения</span></button>
-                <button class="ivyph-dock-btn" data-go="contacts">${icon('user')}<span>Контакты</span></button>
-                <button class="ivyph-dock-btn" data-go="log">${icon('phone')}<span>Звонки</span></button>
+                <button class="ivyph-dock-btn" data-go="home">${icon('message')}<span>Messages</span></button>
+                <button class="ivyph-dock-btn" data-go="contacts">${icon('user')}<span>Contacts</span></button>
+                <button class="ivyph-dock-btn" data-go="log">${icon('phone')}<span>Calls</span></button>
             </div>
         </div>`;
     document.body.appendChild(overlay);
@@ -998,6 +1670,7 @@ function togglePhone(force) {
     buildShell();
     const open = force === undefined ? ui.overlay.hidden : force;
     ui.overlay.hidden = !open;
+    ui.overlay.style.display = open ? 'flex' : 'none';
     document.body.classList.toggle('ivyph-open', open);
     if (open) render();
 }
@@ -1009,38 +1682,55 @@ function go(name, arg) {
 
 // ---------------------------------------------------------------- screens
 
+function threadKey(e) {
+    return e.group ? `g:${keyOf(e.group)}` : keyOf(e.from);
+}
+
+function threadHead(k, list) {
+    if (k.startsWith('g:')) {
+        const g = store().groups[k.slice(2)];
+        return {
+            name: g?.name || k.slice(2),
+            group: true,
+            members: g?.members || [],
+            color: '#4a5a63',
+        };
+    }
+    return contact(list[0].from) || { name: list[0].from };
+}
+
 function threads() {
     const map = new Map();
     for (const e of store().events) {
         if (e.type === 'call') continue;
-        const k = keyOf(e.from);
+        const k = threadKey(e);
         if (!map.has(k)) map.set(k, []);
         map.get(k).push(e);
     }
     return [...map.entries()]
-        .map(([k, list]) => ({ k, c: contact(list[0].from), list, last: list[list.length - 1] }))
+        .map(([k, list]) => ({ k, c: threadHead(k, list), list, last: list[list.length - 1] }))
         .sort((a, b) => b.last.ts - a.last.ts);
 }
 
 function preview(e) {
-    if (e.type === 'photo') return '📷 Фото';
-    if (e.type === 'voice') return `🎤 Голосовое ${e.dur}`;
+    if (e.type === 'photo') return 'Photo';
+    if (e.type === 'voice') return `Voice message ${e.dur}`;
     return e.text;
 }
 
 function renderHome() {
     const list = threads();
     if (!list.length) {
-        return headTitle('Сообщения') + `<div class="ivyph-empty">
+        return headTitle('Messages') + `<div class="ivyph-empty">
             ${icon('messageOff')}
-            <p>Пока ни одной переписки.</p>
-            <small>Сообщения появятся, когда персонаж напишет в чате.</small>
+            <p>No conversations yet.</p>
+            <small>Messages appear when a character texts you.</small>
         </div>`;
     }
-    return headTitle('Сообщения') + `<ul class="ivyph-list">` + list.map(t => {
+    return headTitle('Messages', `<button class="ivyph-icon-btn" data-wand>${icon('wand')}</button>`) + `<ul class="ivyph-list">` + list.map(t => {
         const un = t.list.filter(e => !e.read && e.dir === 'in').length;
         return `<li class="ivyph-row" data-thread="${esc(t.k)}">
-            <span class="ivyph-avatar" style="--tint:${esc(t.c?.color || '#3d4a55')}">${esc((t.c?.name || '?')[0].toUpperCase())}</span>
+            ${avatarHtml(t.c)}
             <span class="ivyph-row-body">
                 <span class="ivyph-row-top"><b>${esc(t.c?.name || t.k)}</b><time>${esc(stampOf(t.last))}</time></span>
                 <span class="ivyph-row-sub">${esc(preview(t.last))}</span>
@@ -1051,8 +1741,9 @@ function renderHome() {
 }
 
 function renderThread(k) {
-    const c = contact(k) || { name: k };
-    const list = store().events.filter(e => keyOf(e.from) === keyOf(k) && e.type !== 'call');
+    const all = store().events.filter(e => e.type !== 'call');
+    const list = all.filter(e => threadKey(e) === k);
+    const c = list.length ? threadHead(k, list) : (contact(k) || { name: k });
     list.forEach(e => { e.read = true; });
     save();
 
@@ -1062,14 +1753,14 @@ function renderThread(k) {
             if (e.image) {
                 inner = `<img class="ivyph-photo" src="${esc(e.image)}" alt="${esc(e.text || 'фото')}">`;
             } else if (e.state === 'pending') {
-                inner = `<span class="ivyph-shot ivyph-shot-busy">${icon('spinner', 'ivyph-spin')} Генерирую…</span>`;
+                inner = `<span class="ivyph-shot ivyph-shot-busy">${icon('spinner', 'ivyph-spin')} Generating…</span>`;
             } else {
                 inner = `<span class="ivyph-shot">
-                    <span class="ivyph-shot-desc">${icon('image')}<i>${esc(e.prompt || 'фото без описания')}</i></span>
+                    <span class="ivyph-shot-desc">${icon('image')}<i>${esc(e.prompt || 'no description')}</i></span>
                     <button class="ivyph-shot-btn" data-gen="${esc(e.id)}">
-                        ${e.state === 'error' ? icon('refresh') + ' Ещё раз' : icon('image') + ' Сгенерировать'}
+                        ${e.state === 'error' ? icon('refresh') + ' Retry' : icon('image') + ' Generate'}
                     </button>
-                    ${e.state === 'error' ? '<span class="ivyph-shot-err">Команда не вернула картинку</span>' : ''}
+                    ${e.state === 'error' ? '<span class="ivyph-shot-err">Command returned no image</span>' : ''}
                 </span>`;
             }
             if (e.text) inner += `<span class="ivyph-cap">${esc(e.text)}</span>`;
@@ -1078,17 +1769,23 @@ function renderThread(k) {
         } else {
             inner = esc(e.text);
         }
-        return `<div class="ivyph-bub ivyph-${e.dir}">${inner}<time>${esc(stampOf(e))}</time></div>`;
+        const who = c.group && e.dir === 'in'
+            ? `<span class="ivyph-who">${esc(e.from)}</span>` : '';
+        const react = e.reaction ? `<span class="ivyph-react">${esc(e.reaction)}</span>` : '';
+        const picker = screen.react === e.id
+            ? `<span class="ivyph-picker">${REACTIONS.map(r => `<button data-react="${esc(e.id)}" data-emoji="${r}">${r}</button>`).join('')}</span>`
+            : '';
+        return `<div class="ivyph-bub ivyph-${e.dir}${e.scam ? ' ivyph-scam' : ''}" data-ev="${esc(e.id)}">${who}${inner}<time>${esc(stampOf(e))}</time>${react}</div>${picker}`;
     }).join('');
 
     return `<div class="ivyph-head ivyph-head-nav">
             <button class="ivyph-back" data-go="home">${icon('chevronLeft')}</button>
-            <span>${esc(c.name)}</span>
+            <span class="ivyph-title">${esc(c.name)}${c.group ? `<small>${esc(c.members.join(', '))}</small>` : ''}</span>
             <button class="ivyph-icon-btn" data-card="${esc(keyOf(k))}">${icon('info')}</button>
         </div>
         <div class="ivyph-thread">${bubbles}</div>
         <div class="ivyph-compose">
-            <textarea rows="1" placeholder="Написать ${esc(c.name)}…"></textarea>
+            <textarea rows="1" placeholder="Message ${esc(c.name)}…"></textarea>
             <button class="ivyph-send" data-send="${esc(keyOf(k))}">${icon('arrowUp')}</button>
         </div>`;
 }
@@ -1096,15 +1793,15 @@ function renderThread(k) {
 function renderContacts() {
     const cs = Object.values(store().contacts);
     const rows = cs.length ? cs.map(c => `<li class="ivyph-row" data-card="${esc(c.key)}">
-            <span class="ivyph-avatar" style="--tint:${esc(c.color || '#3d4a55')}">${esc(c.name[0].toUpperCase())}</span>
+            ${avatarHtml(c)}
             <span class="ivyph-row-body">
                 <span class="ivyph-row-top"><b>${esc(c.name)}</b></span>
-                <span class="ivyph-row-sub">${esc(c.number || c.handle || 'номер не записан')}</span>
+                <span class="ivyph-row-sub">${esc(c.number || c.handle || 'no number saved')}</span>
             </span>
-        </li>`).join('') : `<li class="ivyph-empty-row">Контактов пока нет.</li>`;
+        </li>`).join('') : `<li class="ivyph-empty-row">No contacts yet.</li>`;
 
     return `<div class="ivyph-head ivyph-head-nav">
-            <span>Контакты</span>
+            <span>Contacts</span>
             <button class="ivyph-icon-btn" data-card="__new__">${icon('plus')}</button>
         </div>
         <ul class="ivyph-list">${rows}</ul>`;
@@ -1115,28 +1812,78 @@ function renderCard(k) {
     const c = isNew ? { name: '', number: '', handle: '', anchor: '', color: '#3d4a55' } : (contact(k) || {});
     return `<div class="ivyph-head ivyph-head-nav">
             <button class="ivyph-back" data-go="contacts">${icon('chevronLeft')}</button>
-            <span>${isNew ? 'Новый контакт' : esc(c.name)}</span>
+            <span>${isNew ? 'New contact' : esc(c.name)}</span>
         </div>
         <div class="ivyph-form" data-key="${esc(isNew ? '' : c.key)}">
-            <label>Имя<input data-f="name" value="${esc(c.name)}" placeholder="Cody Johnson"></label>
-            <label>Номер<input data-f="number" value="${esc(c.number)}" placeholder="+1 206 555 0114"></label>
-            <label>Ник<input data-f="handle" value="${esc(c.handle)}" placeholder="@codyj"></label>
-            <label>Якорь внешности<textarea data-f="anchor" rows="3" placeholder="Описание для генерации фото">${esc(c.anchor)}</textarea></label>
-            <label>Цвет<input type="color" data-f="color" value="${esc(c.color || '#3d4a55')}"></label>
+            <label>Name<input data-f="name" value="${esc(c.name)}" placeholder="Cody Johnson"></label>
+            <label>Number<input data-f="number" value="${esc(c.number)}" placeholder="+1 206 555 0114"></label>
+            <label>Handle<input data-f="handle" value="${esc(c.handle)}" placeholder="@codyj"></label>
+            <label>Appearance anchor<textarea data-f="anchor" rows="3" placeholder="Used when generating photos">${esc(c.anchor)}</textarea></label>
+            <label>Color<input type="color" data-f="color" value="${esc(c.color || '#3d4a55')}"></label>
             <div class="ivyph-form-actions">
-                <button class="ivyph-primary" data-save-card>Сохранить</button>
-                ${isNew ? '' : '<button class="ivyph-danger" data-del-card>Удалить</button>'}
+                <button class="ivyph-primary" data-save-card>Save</button>
+                ${isNew ? '' : '<button class="ivyph-danger" data-del-card>Delete</button>'}
             </div>
         </div>`;
 }
 
+function renderConjure() {
+    const cs = Object.values(store().contacts);
+    const rows = cs.length
+        ? cs.map(c => `<li class="ivyph-row" data-conjure="${esc(c.key)}">
+            ${avatarHtml(c)}
+            <span class="ivyph-row-body"><span class="ivyph-row-top"><b>${esc(c.name)}</b></span>
+            <span class="ivyph-row-sub">write a conversation with them</span></span>
+        </li>`).join('')
+        : `<li class="ivyph-empty-row">Add a contact first.</li>`;
+
+    return `<div class="ivyph-head ivyph-head-nav">
+            <button class="ivyph-back" data-go="home">${icon('chevronLeft')}</button>
+            <span class="ivyph-title">Conjure a thread<small>the model writes both sides</small></span>
+            <span class="ivyph-spacer"></span>
+        </div>
+        <ul class="ivyph-list">${rows}</ul>`;
+}
+
+// Палочка: модель пишет готовую переписку целиком, обе стороны.
+async function conjureThread(key) {
+    const c = contact(key);
+    if (!c) return;
+    go('thread', key);
+    logDebug(`сочиняю переписку с ${c.name}`);
+
+    const prompt = [
+        cardContext(),
+        `Current scene:\n${sceneContext(6)}`,
+        c.anchor ? `${c.name}: ${c.anchor}` : '',
+        `Write a short text conversation between the phone owner and ${c.name} that fits the scene above.`,
+        `Six to ten messages. One per line. Prefix each line with "IN:" for ${c.name} and "OUT:" for the owner.`,
+        `No narration, no quotes, no timestamps. Casual texting voice.`,
+    ].filter(Boolean).join('\n\n');
+
+    const raw = await askModel(prompt);
+    if (!raw) { logDebug('палочка вернула пусто'); return; }
+
+    raw.split('\n').map(l => l.trim()).filter(Boolean).forEach(line => {
+        const m = line.match(/^(IN|OUT)\s*:\s*(.+)$/i);
+        if (!m) return;
+        addEvent({
+            mesId: null, type: 'sms',
+            dir: m[1].toUpperCase() === 'IN' ? 'in' : 'out',
+            from: c.name, text: m[2].trim(),
+        });
+    });
+    save();
+    render();
+}
+
 function renderLog() {
     const calls = store().events.filter(e => e.type === 'call').slice().reverse();
-    if (!calls.length) return `<div class="ivyph-empty">${icon('phoneOff')}<p>Звонков не было.</p></div>`;
+    if (!calls.length) return `<div class="ivyph-empty">${icon('phoneOff')}<p>No calls yet.</p></div>`;
     const glyph = { missed: 'phoneOff', declined: 'phoneOff', incoming: 'arrowDown', outgoing: 'arrowUp' };
-    return headTitle('Звонки') + `<ul class="ivyph-list">` + calls.map(e => `
+    return headTitle('Calls') + `<ul class="ivyph-list">` + calls.map(e => `
         <li class="ivyph-row ivyph-call-row ${e.status === 'missed' || e.status === 'declined' ? 'ivyph-missed' : ''}">
-            <span class="ivyph-avatar" style="--tint:${esc(contact(e.from)?.color || '#3d4a55')}">${esc((e.from || '?')[0].toUpperCase())}</span>
+            ${avatarHtml(contact(e.from) || { name: e.from })}
             <span class="ivyph-row-body">
                 <span class="ivyph-row-top"><b>${esc(e.from)}</b><time>${esc(stampOf(e))}</time></span>
                 <span class="ivyph-row-sub">${icon(glyph[e.status] || 'phone')} ${esc(statusWord(e))}</span>
@@ -1144,26 +1891,29 @@ function renderLog() {
         </li>`).join('') + `</ul>`;
 }
 
-function headTitle(title) {
+function headTitle(title, extra = '') {
     const d = gameDate();
-    return `<div class="ivyph-head"><span class="ivyph-title">${esc(title)}${d ? `<small>${esc(d)}</small>` : ''}</span></div>`;
+    const body = `<span class="ivyph-title">${esc(title)}${d ? `<small>${esc(d)}</small>` : ''}</span>`;
+    return extra
+        ? `<div class="ivyph-head ivyph-head-nav"><span class="ivyph-spacer"></span>${body}${extra}</div>`
+        : `<div class="ivyph-head">${body}</div>`;
 }
 
 function statusWord(e) {
-    const map = { incoming: 'Входящий', outgoing: 'Исходящий', missed: 'Пропущенный', declined: 'Сброшен', answered: 'Отвечен', ended: 'Завершён' };
+    const map = { incoming: 'Incoming', outgoing: 'Outgoing', missed: 'Missed', declined: 'Declined', answered: 'Answered', ended: 'Ended' };
     return (map[e.status] || e.status) + (e.dur ? ` · ${e.dur}` : '');
 }
 
 function renderCall(ev) {
     const c = contact(ev.from) || { name: ev.from };
     return `<div class="ivyph-callscreen">
-            <div class="ivyph-call-label">входящий вызов</div>
-            <div class="ivyph-call-avatar" style="--tint:${esc(c.color || '#3d4a55')}">${esc((c.name || '?')[0].toUpperCase())}</div>
+            <div class="ivyph-call-label">incoming call</div>
+            ${avatarHtml(c, 'ivyph-call-avatar')}
             <div class="ivyph-call-name">${esc(c.name)}</div>
-            <div class="ivyph-call-number">${esc(c.number || 'номер скрыт')}</div>
+            <div class="ivyph-call-number">${esc(c.number || 'number withheld')}</div>
             <div class="ivyph-call-actions">
-                <button class="ivyph-call-btn ivyph-decline" data-call="declined"><span class="ivyph-call-circle">${icon('phoneOff')}</span><span>Сбросить</span></button>
-                <button class="ivyph-call-btn ivyph-accept" data-call="answered"><span class="ivyph-call-circle">${icon('phone')}</span><span>Ответить</span></button>
+                <button class="ivyph-call-btn ivyph-decline" data-call="declined"><span class="ivyph-call-circle">${icon('phoneOff')}</span><span>Decline</span></button>
+                <button class="ivyph-call-btn ivyph-accept" data-call="answered"><span class="ivyph-call-circle">${icon('phone')}</span><span>Answer</span></button>
             </div>
         </div>`;
 }
@@ -1181,6 +1931,7 @@ function render() {
 
     if (ui.overlay.hidden) return;
 
+    ui.overlay.querySelector('.ivyph-device').dataset.skin = settings().skin || 'modern';
     ui.overlay.querySelector('.ivyph-carrier').textContent = settings().carrier;
     ui.overlay.querySelector('.ivyph-clock').textContent = gameClock();
 
@@ -1191,6 +1942,7 @@ function render() {
     else if (screen.name === 'contacts') html = renderContacts();
     else if (screen.name === 'card') html = renderCard(screen.arg);
     else if (screen.name === 'log') html = renderLog();
+    else if (screen.name === 'conjure') html = renderConjure();
     else html = renderHome();
 
     ui.overlay.classList.toggle('ivyph-ringing', !!ringing);
@@ -1235,6 +1987,53 @@ function wire() {
         });
     }
 
+    s.querySelectorAll('[data-ev]').forEach(n => n.addEventListener('click', ev => {
+        if (ev.target.closest('[data-react]') || ev.target.closest('img')) return;
+        screen.react = screen.react === n.dataset.ev ? null : n.dataset.ev;
+        render();
+    }));
+
+    s.querySelectorAll('[data-react]').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const e = store().events.find(x => x.id === n.dataset.react);
+        if (e) e.reaction = e.reaction === n.dataset.emoji ? '' : n.dataset.emoji;
+        screen.react = null;
+        save();
+        render();
+    }));
+
+    const wand = s.querySelector('[data-wand]');
+    if (wand) wand.addEventListener('click', () => go('conjure'));
+
+    s.querySelectorAll('[data-conjure]').forEach(n => n.addEventListener('click', () => {
+        conjureThread(n.dataset.conjure);
+    }));
+
+    const pick = s.querySelector('[data-pick-photo]');
+    if (pick) pick.addEventListener('click', () => {
+        const file = document.createElement('input');
+        file.type = 'file';
+        file.accept = 'image/*';
+        file.addEventListener('change', async () => {
+            const f = file.files?.[0];
+            if (!f) return;
+            try {
+                const url = await shrinkImage(f);
+                s.querySelector('[data-f="avatar"]').value = url;
+                const box = s.querySelector('.ivyph-avatar-pick .ivyph-avatar');
+                if (box) box.innerHTML = `<img src="${url}" alt="">`;
+            } catch (err) { logDebug(`фото не загрузилось: ${err?.message || err}`); }
+        });
+        file.click();
+    });
+
+    const drop = s.querySelector('[data-drop-photo]');
+    if (drop) drop.addEventListener('click', () => {
+        s.querySelector('[data-f="avatar"]').value = '';
+        const box = s.querySelector('.ivyph-avatar-pick .ivyph-avatar');
+        if (box) box.textContent = (s.querySelector('[data-f="name"]').value || '?')[0].toUpperCase();
+    });
+
     const saveBtn = s.querySelector('[data-save-card]');
     if (saveBtn) saveBtn.addEventListener('click', () => {
         const form = s.querySelector('.ivyph-form');
@@ -1253,6 +2052,32 @@ function wire() {
         delete store().contacts[s.querySelector('.ivyph-form').dataset.key];
         save();
         go('contacts');
+    });
+}
+
+// Аватарку ужимаем до 160px и кладём как data-url: метаданные чата
+// имеют лимит, полноразмерное фото туда пихать нельзя.
+function shrinkImage(file, size = 160) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('read failed'));
+        reader.onload = () => {
+            const img = new Image();
+            img.onerror = () => reject(new Error('decode failed'));
+            img.onload = () => {
+                const side = Math.min(img.width, img.height);
+                const cv = document.createElement('canvas');
+                cv.width = cv.height = size;
+                cv.getContext('2d').drawImage(
+                    img,
+                    (img.width - side) / 2, (img.height - side) / 2, side, side,
+                    0, 0, size, size,
+                );
+                resolve(cv.toDataURL('image/jpeg', 0.82));
+            };
+            img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
     });
 }
 
@@ -1281,7 +2106,9 @@ async function sendFromPhone(k, text) {
     render();
     scrubAll();
 
-    if (settings().autoTrigger) await runSlash('/trigger');
+    const mode = settings().replyMode;
+    if (mode === 'phone') await generateReply(c, text);
+    else if (mode === 'chat') await runSlash('/trigger');
 }
 
 // ---------------------------------------------------------------- events
@@ -1301,6 +2128,8 @@ function ingest(mesId) {
     setTimeout(scrubAll, 0);
 
     if (settings().autoPhotos) made.filter(e => e.type === 'photo').forEach(generatePhoto);
+
+    maybeScam();
 
     const call = made.find(e => e.type === 'call' && e.status === 'incoming');
     if (call && settings().autoOpenOnCall) togglePhone(true);
@@ -1330,17 +2159,22 @@ function init() {
     eventSource.on(event_types.CHAT_CHANGED, () => {
         screen = { name: 'home', arg: null };
         rebuildFromChat();
+        syncFromContext();
+        syncFromLorebook();
+        pushInjection();
         render();
         setTimeout(scrubAll, 100);
     });
 
     try {
-        getContext().registerSlashCommand?.('phone', () => { togglePhone(true); return ''; }, [], 'открыть телефон', true, true);
+        getContext().registerSlashCommand?.('phone', () => { togglePhone(true); return ''; }, [], 'open the phone', true, true);
     } catch { /* необязательно */ }
 
     buildSettingsPanel();
     setInterval(() => { if (ui && !ui.overlay.hidden) ui.overlay.querySelector('.ivyph-clock').textContent = gameClock(); }, 20000);
-    setTimeout(() => { rebuildFromChat(); render(); scrubAll(); }, 800);
+    setTimeout(() => {
+        rebuildFromChat(); syncFromContext(); syncFromLorebook(); pushInjection(); render(); scrubAll();
+    }, 800);
 }
 
 // ---------------------------------------------------------------- config UI
@@ -1357,26 +2191,75 @@ function buildSettingsPanel() {
                 <b>IVY Phone</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <label class="checkbox_label"><input type="checkbox" data-s="enabled"> Включено</label>
-                <label class="checkbox_label"><input type="checkbox" data-s="hideMarkers"> Прятать маркеры в чате</label>
-                <label class="checkbox_label"><input type="checkbox" data-s="autoOpenOnCall"> Открывать телефон при входящем звонке</label>
-                <label class="checkbox_label"><input type="checkbox" data-s="autoPhotos"> Генерировать фото сразу, без кнопки</label>
-                <label class="checkbox_label"><input type="checkbox" data-s="autoTrigger"> Запускать ответ после смс из телефона</label>
-                <label>Команда генерации<input class="text_pole" data-s="imageCommand" placeholder="/sd quiet=true {{prompt}}"></label>
-                <label>Время в игре<input class="text_pole" data-s="timeMacro" placeholder="{{getvar::time}}"></label>
-                <label>Дата в игре<input class="text_pole" data-s="dateMacro" placeholder="{{getvar::date}}"></label>
-                <label>Оператор<input class="text_pole" data-s="carrier"></label>
+                <label class="checkbox_label"><input type="checkbox" data-s="enabled"> Enabled</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="hideMarkers"> Hide markers in chat</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="autoOpenOnCall"> Open phone on incoming call</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="autoPhotos"> Generate photos automatically</label>
+
+                <label>Look
+                    <select class="text_pole" data-s="skin">
+                        <option value="modern">Modern smartphone</option>
+                        <option value="iphone4">iPhone 4S (2011)</option>
+                        <option value="android">Android</option>
+                        <option value="nokia">Old Nokia</option>
+                    </select>
+                </label>
+                <label class="checkbox_label"><input type="checkbox" data-s="scams"> Spam and scam texts</label>
+
+                <hr>
+                <b>Replies</b>
+                <label>When I send a text from the phone
+                    <select class="text_pole" data-s="replyMode">
+                        <option value="phone">Contact answers (separate request)</option>
+                        <option value="chat">Continue the roleplay instead</option>
+                        <option value="none">Do nothing</option>
+                    </select>
+                </label>
+                <label>Connection profile<input class="text_pole" data-s="profile" placeholder="empty = current profile"></label>
+                <label>Context sent to the phone
+                    <select class="text_pole" data-s="contextMode">
+                        <option value="full">Card, persona and scene</option>
+                        <option value="slice">Recent messages only</option>
+                    </select>
+                </label>
+                <label>Max reply length<input class="text_pole" type="number" data-s="replyLength"></label>
+                <label>Prefill<input class="text_pole" data-s="prefill"></label>
+
+                <hr>
+                <b>Instruction</b>
+                <label class="checkbox_label"><input type="checkbox" data-s="autoInject"> Inject automatically (no preset editing)</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="compact"> Compact instruction</label>
+                <label>Injection depth<input class="text_pole" type="number" data-s="injectDepth"></label>
+
+                <hr>
+                <b>Images and clock</b>
+                <label>Image command<input class="text_pole" data-s="imageCommand" placeholder="/sd quiet=true {{prompt}}"></label>
+                <label>In-game time<input class="text_pole" data-s="timeMacro" placeholder="{{getvar::time}}"></label>
+                <label>In-game date<input class="text_pole" data-s="dateMacro" placeholder="{{getvar::date}}"></label>
+                <label>Carrier<input class="text_pole" data-s="carrier"></label>
+
+                <hr>
+                <button class="menu_button" data-report>Show report</button>
             </div>
         </div>`;
     host.appendChild(box);
+
+    box.querySelector('[data-report]')?.addEventListener('click', () => {
+        const text = debugLog.length ? debugLog.join('\n') : 'No errors logged.';
+        alert(text);
+    });
 
     box.querySelectorAll('[data-s]').forEach(f => {
         const key = f.dataset.s;
         if (f.type === 'checkbox') f.checked = !!s[key]; else f.value = s[key];
         f.addEventListener('change', () => {
-            s[key] = f.type === 'checkbox' ? f.checked : f.value;
+            if (f.type === 'checkbox') s[key] = f.checked;
+            else if (f.type === 'number') s[key] = Number(f.value) || 0;
+            else s[key] = f.value;
             saveSettingsDebounced();
             if (key === 'hideMarkers') scrubAll();
+            if (key === 'skin') render();
+            if (['autoInject', 'compact', 'injectDepth'].includes(key)) pushInjection();
         });
     });
 }
