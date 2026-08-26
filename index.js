@@ -1770,7 +1770,15 @@ async function generatePhoto(ev) {
     // Имя обязано быть в промпте: по нему срабатывает режим «Send on match»
     // в sillyimages и подставляется референс внешности. Без имени модель
     // рисует случайное лицо.
-    const who = ev.dir === 'in' ? (c?.name || ev.from) : '';
+    // Референс подтягивается только если имя встретилось в промпте, причём
+    // расширения генерации требуют его с заглавной буквы. Приводим к такому виду.
+    const capitalize = s => String(s || '')
+        .split(/\s+/)
+        .map(w => w ? w[0].toUpperCase() + w.slice(1) : w)
+        .join(' ')
+        .trim();
+
+    const who = ev.dir === 'in' ? capitalize(c?.name || ev.from) : '';
     const prompt = [who, c?.anchor, cleanPrompt].filter(Boolean).join(', ');
 
     ev.state = 'pending';
@@ -1950,7 +1958,10 @@ async function buildReplyPrompt(c, outgoing) {
         `typos or none. A guarded person writes differently from a warm one; someone raised on`,
         `letters writes differently from someone raised on a keypad. Two contacts must never sound alike.`,
         `Keep it consistent with how ${c.name} already texted earlier in this thread.`,
-        `Plain text under ${s.replyLength} characters, no quotation marks, no narration, no name prefix.`,
+        `Output ONLY the body of the text message. Under ${s.replyLength} characters.`,
+        `No quotation marks, no name prefix, no narration, no asterisks, no dashes for speech,`,
+        `no scene description, no UI panels, no headers, no choices, no commentary.`,
+        `This is a phone message, not a roleplay reply — one short block of text and nothing else.`,
         `This phone can send photos and the character knows how to use it. Never write that you`,
         `cannot send pictures, do not know how, will send it later, or will show it in person.`,
         `If the owner asks to see something or someone, that request is handled elsewhere —`,
@@ -1965,6 +1976,33 @@ async function buildReplyPrompt(c, outgoing) {
     return parts.filter(Boolean).join('\n\n');
 }
 
+// Модель иногда всё равно скатывается в полноценный ответ по сцене:
+// с панелями, прозой и репликами через тире. В смс это недопустимо —
+// оставляем только сам текст сообщения.
+function sanitizeReply(raw) {
+    let t = stripPanels(String(raw || ''));
+
+    // выкидываем строки-панели и служебные пометки
+    t = t.split('\n')
+        .filter(l => !/^\s*(\[|⟦|#|\*\*|HEADER|CROSSROADS|COMMENTS|PSYCHE|BODY|STATE|VARS|GOAL|PLAN)/i.test(l))
+        .join('\n')
+        .trim();
+
+    // абзац прозы: берём только первый блок до пустой строки
+    if (/\n\s*\n/.test(t)) t = t.split(/\n\s*\n/)[0].trim();
+
+    // строки-действия через тире — это уже сцена, а не сообщение
+    t = t.split('\n').filter(l => !/^\s*[—–-]\s/.test(l)).join(' ').trim();
+
+    // курсив-ремарки вида *он усмехнулся*
+    t = t.replace(/\*[^*]{3,}\*/g, '').replace(/\s{2,}/g, ' ').trim();
+
+    // подпись имени в начале
+    t = t.replace(/^[A-Za-zА-Яа-яЁё .'-]{2,20}:\s*/, '').trim();
+
+    return t;
+}
+
 async function askModel(prompt) {
     const s = settings();
     let previous = '';
@@ -1976,10 +2014,25 @@ async function askModel(prompt) {
         }
         const ctx = getContext();
         if (typeof ctx.generateQuietPrompt === 'function') {
-            return await ctx.generateQuietPrompt(prompt, false, false, s.prefill || '');
+            let out;
+            // Новая сигнатура — объектом. skipWIAN обязателен: иначе в запрос
+            // уезжают лорбук и авторские заметки пресета, и модель пишет
+            // полноценный пост со всеми панелями вместо короткой смс.
+            try {
+                out = await ctx.generateQuietPrompt({
+                    quietPrompt: prompt,
+                    quietToLoud: false,
+                    skipWIAN: true,
+                    quietName: 'Phone',
+                    responseLength: Math.max(120, Number(s.replyLength) || 320),
+                });
+            } catch {
+                out = await ctx.generateQuietPrompt(prompt, false, true);
+            }
+            return sanitizeReply(out);
         }
         const flat = prompt.replace(/\|/g, '\\|').replace(/\n/g, ' ');
-        return String((await runSlash(`/genraw ${flat}`))?.pipe || '');
+        return sanitizeReply(String((await runSlash(`/genraw ${flat}`))?.pipe || ''));
     } catch (err) {
         logDebug(`ошибка запроса: ${err?.message || err}`);
         return '';
@@ -2014,6 +2067,14 @@ async function generateReply(c, outgoing, sentEvent, opts = {}) {
 
         let text = await askModel(prompt);
         text = String(text || '').trim().replace(/^["']|["']$/g, '');
+
+        // последний рубеж: смс не может быть длиной с пост
+        const cap = Math.max(160, Number(settings().replyLength) || 320);
+        if (text.length > cap * 1.6) {
+            const cut = text.slice(0, cap);
+            text = cut.slice(0, Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '), cap - 40) + 1).trim();
+            logDebug('ответ был длиной с пост, обрезан');
+        }
 
         // персонаж может прочитать и не ответить — это тоже ответ
         if (!text || /^\[?silence\]?$/i.test(text)) {
@@ -2079,7 +2140,8 @@ async function maybeProactive() {
     ].filter(Boolean).join('\n\n'));
 
     const clean = String(text || '').trim().replace(/^["']|["']$/g, '');
-    if (!clean || clean.length > 400) return;
+    if (!clean) return;
+    if (clean.length > 400) { logDebug('инициативное смс пришло постом, отброшено'); return; }
 
     addEvent({ mesId: null, type: 'sms', dir: 'in', from: who, text: clean });
     save();
