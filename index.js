@@ -9,7 +9,7 @@ const MODULE = 'ivy_phone';
 // таверны отдают .css с неверным Content-Type, и браузер отказывается
 // подключать внешний файл, хотя сам файл на диске в порядке.
 
-const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
+const CSS_TEXT = `/* IVY Phone — интерфейс телефона для ролевого чата */
 
 .ivyph-overlay,
 .ivyph-launcher {
@@ -902,7 +902,7 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 .ivyph-spacer { width: 26px; flex: none; }
 
 /* ============================================================ */
-/* 1. MODERN — крупные радиусы, вырез, плавающая полоса          */
+/* 1. СОВРЕМЕННЫЙ — крупные радиусы, полупрозрачные панели       */
 /* ============================================================ */
 
 [data-skin="modern"] {
@@ -944,7 +944,7 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 [data-skin="modern"] .ivyph-avatar { width: 42px; height: 42px; }
 
 /* ============================================================ */
-/* 2. IPHONE 4S — скевоморфизм 2011: глянец, засечки, полосы     */
+/* 2. СКЕВОМОРФНЫЙ — глянец, градиенты, светлые панели           */
 /* ============================================================ */
 
 [data-skin="iphone4"] {
@@ -1119,7 +1119,7 @@ const CSS_TEXT = `/* IVY Phone — 2011-era handset, rainy-Seattle palette */
 [data-skin="android"] .ivyph-primary { background: var(--ph-accent); color: #0b1a2b; }
 
 /* ============================================================ */
-/* 4. NOKIA — монохромный ЖК, пиксельный шрифт, без пузырей      */
+/* 4. КНОПОЧНЫЙ — монохромный ЖК, моноширинный шрифт, без пузырей */
 /* ============================================================ */
 
 [data-skin="nokia"] {
@@ -1341,7 +1341,7 @@ function keyOf(name) {
     return String(name || '').trim().toLowerCase();
 }
 
-// «Cody» из смс и «Cody Johnson» из карточки — один и тот же человек.
+// Короткое имя из смс и полное из карточки — один и тот же человек.
 // Ищем уже заведённый контакт по первому слову имени, иначе плодятся дубли.
 function looksLikeNumber(s) {
     return /^\+?[\d\s()\-]+$/.test(String(s || '').trim());
@@ -1449,14 +1449,12 @@ function unreadCount() {
 // ---------------------------------------------------------------- parser
 //
 //   [PHONE]
-//   SMS|Cody|Ты где?
-//   SMS|Cody|Уже еду|out
-//   PHOTO|Cody|wet neon street at night|Дождь опять
-//   CALL|Arthur|incoming
-//   CALL|Arthur|missed
-//   CALL|Arthur|ended|4:12
-//   VOICE|Cody|0:23
-//   CONTACT|Cody Johnson|+1 206 555 0114|@codyj
+//   SMS|Имя|текст сообщения
+//   SMS|Имя|текст|out            — от лица владельца телефона
+//   PHOTO|Имя|english image prompt|подпись
+//   CALL|Имя|incoming            — также missed, declined, answered, ended|4:12
+//   VOICE|Имя|0:23
+//   CONTACT|Полное Имя|+1 555 0100|@ник
 //   [/PHONE]
 
 const BLOCK_RE = /\[PHONE\]([\s\S]*?)\[\/PHONE\]/gi;
@@ -1493,7 +1491,7 @@ function parseLine(line, mesId) {
     let from = parts.shift() || '';
     if (!from) return null;
 
-    // «Arthur@Crew» — сообщение от Артура в групповой чат Crew
+    // «Имя@Группа» — сообщение от этого человека в групповой чат
     let group = '';
     if (from.includes('@')) {
         const [who, where] = from.split('@');
@@ -1523,7 +1521,18 @@ function parseLine(line, mesId) {
             return addEvent({ mesId, type: 'voice', dir, from, dur: parts.shift() || '0:07' });
 
         case 'CALL': {
-            const status = (parts.shift() || 'incoming').toLowerCase();
+            const raw = (parts.shift() || 'incoming').toLowerCase().trim();
+            const map = {
+                ring: 'incoming', ringing: 'incoming', calling: 'incoming', in: 'incoming',
+                входящий: 'incoming', звонит: 'incoming',
+                miss: 'missed', missed: 'missed', пропущенный: 'missed',
+                decline: 'declined', declined: 'declined', rejected: 'declined', сброшен: 'declined',
+                answer: 'answered', answered: 'answered', picked: 'answered', отвечен: 'answered',
+                out: 'outgoing', outgoing: 'outgoing', исходящий: 'outgoing',
+                end: 'ended', ended: 'ended', завершён: 'ended',
+                noanswer: 'noanswer', 'no answer': 'noanswer',
+            };
+            const status = map[raw] || (dir === 'out' ? 'outgoing' : 'incoming');
             return addEvent({ mesId, type: 'call', dir, from, status, dur: parts.shift() || '' });
         }
 
@@ -1545,9 +1554,9 @@ function parseLine(line, mesId) {
 
         case 'TIME': {
             const s = store();
-            s.time = from;
+            if (!looksUnfilled(from)) s.time = from;
             const d = parts.shift();
-            if (d) s.date = d;
+            if (d && !looksUnfilled(d)) s.date = d;
             save();
             return null;
         }
@@ -1830,7 +1839,6 @@ async function buildReplyPrompt(c, outgoing) {
     if (c.anchor) parts.push(`${c.name}: ${c.anchor}`);
     parts.push(`Text conversation so far:\n${thread}`);
     if (c.lore) parts.push(`### Who ${c.name} is\n${c.lore}`);
-    if (c.lore) parts.push(`### Who ${c.name} is\n${c.lore}`);
     if (c.style) parts.push(`### How ${c.name} texts\n${c.style}`);
 
     parts.push([
@@ -1843,8 +1851,12 @@ async function buildReplyPrompt(c, outgoing) {
         `letters writes differently from someone raised on a keypad. Two contacts must never sound alike.`,
         `Keep it consistent with how ${c.name} already texted earlier in this thread.`,
         `Plain text under ${s.replyLength} characters, no quotation marks, no narration, no name prefix.`,
-        `If ${c.name} would realistically not reply right now — angry, asleep, driving, done talking —`,
-        `answer with exactly [silence] and nothing else.`,
+        `Default behaviour is to REPLY. People answer their phone messages, especially people who`,
+        `care about the owner. Answer with exactly [silence] ONLY in a genuinely strong case:`,
+        `they are in an active fight with the owner and have said they are done talking, they are`,
+        `asleep at this hour, or the scene shows they physically cannot look at the phone right now.`,
+        `Warmth, worry, irritation, being busy or being at work are NOT reasons to stay silent —`,
+        `a short or curt reply is what happens instead. Never go silent on a plea for help.`,
     ].join(' '));
     return parts.filter(Boolean).join('\n\n');
 }
@@ -1993,8 +2005,8 @@ function instructionText() {
         'PHOTO|Name|english prompt describing the shot|caption',
         'VOICE|Name|0:23',
         'CALL|Name|incoming     (also: missed, declined, answered, ended|4:12)',
-        'CONTACT|Full Name|+1 206 555 0114|@handle',
-        'TIME|21:47|friday, august 12 2011',
+        'CONTACT|Full Name|+1 555 0100|@handle',
+        'TIME|HH:MM|weekday, month DD, YYYY',
         'Rules: never repeat the text of a message in the prose — describe only the reaction.',
         'Any texting or calling that happens in the scene must also appear in the block — including',
         'messages the phone owner sends and calls the owner makes. If the prose says someone texted,',
@@ -2190,9 +2202,9 @@ function groupAvatar(name, cls = 'ivyph-avatar') {
     return `<span class="${cls} ivyph-avatar-group" style="--tint:#4a6355">${icon('group')}</span>`;
 }
 
-// Как контакт подписан у тебя в телефоне. В модель это никогда не уходит.
+// Дубль shown(): оставлен для совместимости, читает то же поле label.
 function shownName(c) {
-    return (c?.display || '').trim() || c?.name || '';
+    return shown(c);
 }
 
 function avatarHtml(c, cls = 'ivyph-avatar') {
@@ -2229,14 +2241,26 @@ function readVar(name) {
 
 // Макрос из поля настроек. Сначала вытаскиваем getvar напрямую, потом,
 // если осталось что-то другое, отдаём на общий substituteParams.
-function fromMacro(tpl) {
+// Переменная может существовать, но содержать незаполненный плейсхолдер
+// («HH:MM», «WEEKDAY, MON DD, YYYY»). Такое значение надо отбросить,
+// иначе часы честно покажут мусор.
+function looksUnfilled(v) {
+    return !v
+        || /\{\{/.test(v)
+        || /^(hh|чч)[:.]?(mm|мм)$/i.test(v.trim())
+        || /\b(HH|MM|YYYY|WEEKDAY|MON|DD|ЧЧ|ММ|ГГГГ)\b/.test(v);
+}
+
+function fromMacro(tpl, kind) {
     if (!tpl || !tpl.trim()) return '';
     let out = tpl.replace(/\{\{getvar::([^}]+)\}\}/g, (_, n) => readVar(n.trim()));
     if (out.includes('{{')) {
         try { out = String(getContext().substituteParams(out) || ''); } catch { /* ignore */ }
     }
     out = out.trim();
-    return out && !out.includes('{{') ? out : '';
+    if (looksUnfilled(out)) return '';
+    if (kind === 'time' && !/^\d{1,2}:\d{2}/.test(out)) return '';
+    return out;
 }
 
 // Многие пресеты (IVY в том числе) не пишут время в переменную, а печатают
@@ -2288,11 +2312,17 @@ function fromHeader() {
 
 // Приоритет: макрос из настроек → хедер в чате → сохранённый маркер → часы.
 function gameClock() {
-    return fromMacro(settings().timeMacro) || fromHeader().time || store().time || clock();
+    const t = fromMacro(settings().timeMacro, 'time')
+        || fromHeader().time
+        || (looksUnfilled(store().time) ? '' : store().time);
+    return t || clock();
 }
 
 function gameDate() {
-    return fromMacro(settings().dateMacro) || fromHeader().date || store().date || '';
+    const d = fromMacro(settings().dateMacro, 'date')
+        || fromHeader().date
+        || (looksUnfilled(store().date) ? '' : store().date);
+    return d || '';
 }
 
 function stampOf(e) {
@@ -2580,7 +2610,7 @@ function renderNewGroup() {
             <span class="ivyph-spacer"></span>
         </div>
         <div class="ivyph-form">
-            <label>Group name<input class="ivyph-group-name" placeholder="The Crew"></label>
+            <label>Group name<input class="ivyph-group-name" placeholder="название группы"></label>
         </div>
         <ul class="ivyph-list">${cs.map(c => `
             <li class="ivyph-row">
@@ -2595,19 +2625,21 @@ function renderNewGroup() {
 
 function renderCard(k) {
     const isNew = k === '__new__';
-    const c = isNew ? { name: '', number: '', handle: '', anchor: '', color: '#3d4a55' } : (contact(k) || {});
+    const c = isNew
+        ? { name: '', label: '', lore: '', number: '', handle: '', anchor: '', style: '', color: '#3d4a55', avatar: '', blocked: false }
+        : (contact(k) || {});
     return `<div class="ivyph-head ivyph-head-nav">
             <button class="ivyph-back" data-go="contacts">${icon('chevronLeft')}</button>
             <span>${isNew ? 'New contact' : esc(shown(c))}</span>
         </div>
         <div class="ivyph-form" data-key="${esc(isNew ? '' : c.key)}">
             <label>Name (used by the model)<input data-f="name" value="${esc(c.name)}" placeholder="John Doe"></label>
-            <label>Display as (only you see this)<input data-f="label" value="${esc(c.label || '')}" placeholder="Johnny ♥"></label>
-            <label>Who they are in the lore<textarea data-f="lore" rows="3" placeholder="Alice's ex, runs the garage on Pike, brother of Sadie">${esc(c.lore || '')}</textarea></label>
+            <label>Display as (only you see this)<input data-f="label" value="${esc(c.label || '')}" placeholder="как подписан у тебя"></label>
+            <label>Who they are in the lore<textarea data-f="lore" rows="3" placeholder="кем приходится, чем занят, что знает">${esc(c.lore || '')}</textarea></label>
             <label>Number<input data-f="number" value="${esc(c.number)}" placeholder="+1 555 0100"></label>
             <label>Handle<input data-f="handle" value="${esc(c.handle)}" placeholder="@handle"></label>
             <label>Appearance anchor<textarea data-f="anchor" rows="3" placeholder="Used when generating photos">${esc(c.anchor)}</textarea></label>
-            <label>Texting style<textarea data-f="style" rows="3" placeholder="lowercase, no punctuation, never uses emoji, one-word replies">${esc(c.style || '')}</textarea></label>
+            <label>Texting style<textarea data-f="style" rows="3" placeholder="строчными, без точек, без смайлов, коротко">${esc(c.style || '')}</textarea></label>
             <label class="ivyph-check">
                 <input type="checkbox" data-f="blocked" ${c.blocked ? 'checked' : ''}>
                 <span>Blocked — their messages never arrive</span>
@@ -2767,9 +2799,13 @@ function render() {
     ui.overlay.querySelector('.ivyph-carrier').textContent = settings().carrier;
     ui.overlay.querySelector('.ivyph-clock').textContent = gameClock();
 
+    // Экран входящего показываем, пока звонок не обработан. Любой другой
+    // экран, выбранный вручную, имеет приоритет — иначе телефон залипает.
     const ringing = store().events.find(e => e.type === 'call' && e.status === 'incoming' && !e.read);
+    const stuckOnCall = ringing && !['log', 'contacts', 'card', 'thread', 'newgroup'].includes(screen.name);
+
     let html;
-    if (ringing && screen.name !== 'silenced') { html = renderCall(ringing); screen.arg = ringing.id; }
+    if (stuckOnCall) { html = renderCall(ringing); screen.arg = ringing.id; }
     else if (screen.name === 'thread') html = renderThread(screen.arg);
     else if (screen.name === 'contacts') html = renderContacts();
     else if (screen.name === 'card') html = renderCard(screen.arg);
@@ -2779,7 +2815,7 @@ function render() {
     else if (screen.name === 'newgroup') html = renderNewGroup();
     else html = renderHome();
 
-    ui.overlay.classList.toggle('ivyph-ringing', !!ringing || screen.name === 'dialing');
+    ui.overlay.classList.toggle('ivyph-ringing', !!stuckOnCall || screen.name === 'dialing');
     ui.screen.innerHTML = html;
     wire();
 
@@ -2796,9 +2832,18 @@ function wire() {
 
     s.querySelectorAll('[data-call]').forEach(n => n.addEventListener('click', () => {
         const ev = store().events.find(e => e.id === screen.arg);
-        if (ev) { ev.read = true; ev.status = n.dataset.call; }
+        if (ev) {
+            ev.read = true;
+            ev.status = n.dataset.call;
+            if (n.dataset.call === 'answered') {
+                ev.dur = `${Math.floor(1 + Math.random() * 7)}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`;
+            }
+        }
         save();
+        pushInjection();
         go('log');
+        // отвечен — пусть разговор продолжится в сцене
+        if (n.dataset.call === 'answered' && settings().replyMode !== 'none') runSlash('/trigger');
     }));
 
     s.querySelectorAll('[data-gen]').forEach(n => n.addEventListener('click', e => {
@@ -3064,6 +3109,60 @@ async function pushToChat(marker) {
 // Просьба прислать фото. Модель здесь не решает, соглашаться ли — её просят
 // только описать кадр. Поэтому персонаж не может «отказаться» или ответить
 // прозой вместо картинки.
+// Персонаж делает снимок по конкретной просьбе. Модель не решает,
+// соглашаться ли — её просят только описать кадр, поэтому отказ невозможен.
+async function deliverPhoto(c, request, sentEvent) {
+    try {
+        if (sentEvent) {
+            await wait(600 + Math.random() * 700);
+            sentEvent.dstate = 'delivered';
+            render();
+            await wait(700 + Math.random() * 1500);
+            sentEvent.dstate = 'read';
+            render();
+        }
+
+        store().typing = resolveKey(c.name);
+        render();
+
+        const scene = sceneContext(6);
+        const shot = await askModel([
+            cardContext(),
+            await lorebookContext(`${scene} ${c.name}`),
+            `Current scene:\n${scene}`,
+            c.lore ? `Who ${c.name} is: ${c.lore}` : '',
+            `The phone owner just texted ${c.name}: "${request}"`,
+            `That is a request for a photo. ${c.name} takes it and sends it — they do not refuse,`,
+            `do not promise it for later, do not answer in words.`,
+            `Describe the photo they actually take, in English, as an image prompt.`,
+            `Framing only: subject, place, light, time of day, angle. No names, no appearance details —`,
+            `those are added separately. One line, under 200 characters, no quotes, no explanation,`,
+            `no HEADER or other UI panel.`,
+        ].filter(Boolean).join('\n\n'));
+
+        store().typing = '';
+
+        const prompt = stripPanels(shot).replace(/^["']|["']$/g, '').split('\n')[0].trim();
+        if (!prompt || /HEADER|CROSSROADS|COMMENTS/i.test(prompt)) {
+            logDebug('модель не описала кадр');
+            render();
+            return;
+        }
+
+        const ev = addEvent({
+            mesId: null, type: 'photo', dir: 'in', from: c.name,
+            prompt, text: '', state: 'idle',
+        });
+        save();
+        render();
+        pushInjection();
+        if (settings().autoPhotos) generatePhoto(ev);
+    } finally {
+        store().typing = '';
+        render();
+    }
+}
+
 async function askForPhoto(k) {
     const c = contact(k.replace(/^g:/, ''));
     if (!c) return;
@@ -3125,8 +3224,11 @@ async function sendPhotoFromPhone(k, file) {
 }
 
 async function sendFromPhone(k, text) {
-    const c = contact(k) || { name: k };
-    const group = store().groups[keyOf(k.replace(/^g:/, ''))];
+    const isGroup = k.startsWith('g:');
+    const group = isGroup ? store().groups[keyOf(k.slice(2))] : null;
+    const c = isGroup
+        ? { key: k, name: group?.name || k.slice(2) }
+        : (contact(k) || { name: k });
     const target = group ? `${settings().ownerLabel}@${group.name}` : c.name;
     const mesId = await pushToChat(`[PHONE]\nSMS|${target}|${text}|out\n[/PHONE]`);
 
@@ -3138,6 +3240,13 @@ async function sendFromPhone(k, text) {
     render();
 
     const mode = settings().replyMode;
+
+    // «пришли фото цветка», «сфоткай», «покажи» — это просьба о картинке,
+    // а не обычная реплика. Иначе модель отвечает прозой «пришлю позже».
+    const asksPhoto = /\b(pic|pics|picture|photo|photos|selfie|snap|send me a shot|show me)\b/i.test(text)
+        || /(фотк|фото|сфотк|снимок|сними|покажи|селфи|пришли\s+фот)/i.test(text);
+
+    if (mode === 'phone' && asksPhoto) { await deliverPhoto(c, text, sent); return; }
     if (mode === 'phone') await generateReply(c, text, sent);
     else if (mode === 'chat') await runSlash('/trigger');
 }
@@ -3160,8 +3269,8 @@ async function placeCall(key) {
     // сколько гудков — тоже часть сцены
     await wait(2600 + Math.random() * 3400);
 
-    let verdict = 'noanswer';
-    if (settings().replyMode === 'phone') {
+    let verdict = 'answered';
+    if (settings().replyMode !== 'none') {
         const scene = sceneContext(6);
         const answer = await askModel([
             cardContext(),
@@ -3169,12 +3278,15 @@ async function placeCall(key) {
             `Current scene:\n${scene}`,
             `The phone owner is calling ${c.name} right now.`,
             `Decide what ${c.name} does. Answer with exactly one word: answered, declined, or noanswer.`,
-            `Consider where they are and how things stand between them.`,
+            `People normally pick up when someone they know calls, so "answered" is the default.`,
+            `Choose declined or noanswer only if the scene gives a real reason — they are asleep,`,
+            `driving, in the middle of something they cannot leave, or actively refusing contact.`,
         ].filter(Boolean).join('\n\n'));
 
         const word = String(answer || '').toLowerCase();
-        if (word.includes('answer') && !word.includes('noanswer')) verdict = 'answered';
-        else if (word.includes('declin')) verdict = 'declined';
+        if (/no\s*answer|noanswer|voicemail|не\s*отвеч/.test(word)) verdict = 'noanswer';
+        else if (/declin|reject|сброс|отклон/.test(word)) verdict = 'declined';
+        else verdict = 'answered';
     }
 
     ev.status = verdict;
@@ -3367,7 +3479,7 @@ function buildSettingsPanel() {
                 <label>Оформление
                     <select class="text_pole" data-s="skin">
                         <option value="modern">Современный смартфон</option>
-                        <option value="iphone4">iPhone 4S (2011)</option>
+                        <option value="iphone4">iPhone 4S</option>
                         <option value="android">Android</option>
                         <option value="nokia">Старая Nokia</option>
                     </select>
