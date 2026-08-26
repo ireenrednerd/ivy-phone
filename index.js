@@ -1675,7 +1675,11 @@ async function generatePhoto(ev) {
     const s = settings();
     const c = contact(ev.from);
     const cleanPrompt = stripPanels(ev.prompt).split('\n')[0].trim();
-    const prompt = [c?.anchor, cleanPrompt].filter(Boolean).join(', ');
+    // Имя обязано быть в промпте: по нему срабатывает режим «Send on match»
+    // в sillyimages и подставляется референс внешности. Без имени модель
+    // рисует случайное лицо.
+    const who = ev.dir === 'in' ? (c?.name || ev.from) : '';
+    const prompt = [who, c?.anchor, cleanPrompt].filter(Boolean).join(', ');
 
     ev.state = 'pending';
     render();
@@ -3135,9 +3139,9 @@ async function deliverPhoto(c, request, sentEvent) {
             `That is a request for a photo. ${c.name} takes it and sends it — they do not refuse,`,
             `do not promise it for later, do not answer in words.`,
             `Describe the photo they actually take, in English, as an image prompt.`,
-            `Framing only: subject, place, light, time of day, angle. No names, no appearance details —`,
-            `those are added separately. One line, under 200 characters, no quotes, no explanation,`,
-            `no HEADER or other UI panel.`,
+            `Framing only: subject, place, light, time of day, angle, what is in frame.`,
+            `Do not describe how anyone looks — appearance is attached separately.`,
+            `One line, under 200 characters, no quotes, no explanation, no HEADER or other UI panel.`,
         ].filter(Boolean).join('\n\n'));
 
         store().typing = '';
@@ -3182,8 +3186,9 @@ async function askForPhoto(k) {
         c.lore ? `Who ${c.name} is: ${c.lore}` : '',
         `The phone owner just asked ${c.name} to send a picture.`,
         `Describe the photo ${c.name} would actually take right now, in English, as an image prompt.`,
-        `Only the framing: place, light, time of day, angle, what is in frame. No names, no appearance —`,
-        `that is added separately. One line, under 200 characters, no quotes, no explanation.`,
+        `Only the framing: place, light, time of day, angle, what is in frame.`,
+        `Do not describe how anyone looks — appearance is attached separately.`,
+        `One line, under 200 characters, no quotes, no explanation.`,
         `Do NOT include any HEADER, CROSSROADS, COMMENTS or other UI panel. Just the plain image description.`,
     ].filter(Boolean).join('\n\n'));
 
