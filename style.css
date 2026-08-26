@@ -847,8 +847,17 @@
     transition: opacity .15s, background .15s;
 }
 
-.ivyph-bub:hover .ivyph-more { opacity: .7; }
+/* На тач-экране наведения нет, поэтому кнопка видна всегда. */
+.ivyph-more { opacity: .45; }
+.ivyph-bub:hover .ivyph-more { opacity: .8; }
 .ivyph-more:hover { opacity: 1 !important; background: rgba(127, 139, 149, .18); }
+
+@media (hover: none) {
+    .ivyph-more {
+        opacity: .6;
+        background: rgba(127, 139, 149, .14);
+    }
+}
 .ivyph-more .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
 
 .ivyph-bub { padding-right: 28px; }
@@ -917,6 +926,14 @@
 .ivyph-viewer-bar .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
 
 .ivyph-photo { cursor: zoom-in; }
+
+/* Над картинкой кнопка нуждается в подложке, иначе теряется на снимке. */
+.ivyph-bub:has(.ivyph-photo) .ivyph-more,
+.ivyph-bub:has(.ivyph-shot) .ivyph-more {
+    background: rgba(10, 14, 18, .55);
+    color: #fff;
+    opacity: .8;
+}
 
 .ivyph-picker {
     align-self: center;
@@ -1103,6 +1120,8 @@
 }
 
 [data-skin="iphone4"] .ivyph-bub time { opacity: .5; }
+[data-skin="iphone4"] .ivyph-more { color: #3a3f45; }
+[data-skin="iphone4"] .ivyph-out .ivyph-more { color: #1c3d10; }
 
 [data-skin="iphone4"] .ivyph-compose {
     background: linear-gradient(180deg, #b6bcc3, #8d959e);

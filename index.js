@@ -858,8 +858,17 @@ const CSS_TEXT = `/* IVY Phone — интерфейс телефона для р
     transition: opacity .15s, background .15s;
 }
 
-.ivyph-bub:hover .ivyph-more { opacity: .7; }
+/* На тач-экране наведения нет, поэтому кнопка видна всегда. */
+.ivyph-more { opacity: .45; }
+.ivyph-bub:hover .ivyph-more { opacity: .8; }
 .ivyph-more:hover { opacity: 1 !important; background: rgba(127, 139, 149, .18); }
+
+@media (hover: none) {
+    .ivyph-more {
+        opacity: .6;
+        background: rgba(127, 139, 149, .14);
+    }
+}
 .ivyph-more .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
 
 .ivyph-bub { padding-right: 28px; }
@@ -928,6 +937,14 @@ const CSS_TEXT = `/* IVY Phone — интерфейс телефона для р
 .ivyph-viewer-bar .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
 
 .ivyph-photo { cursor: zoom-in; }
+
+/* Над картинкой кнопка нуждается в подложке, иначе теряется на снимке. */
+.ivyph-bub:has(.ivyph-photo) .ivyph-more,
+.ivyph-bub:has(.ivyph-shot) .ivyph-more {
+    background: rgba(10, 14, 18, .55);
+    color: #fff;
+    opacity: .8;
+}
 
 .ivyph-picker {
     align-self: center;
@@ -1114,6 +1131,8 @@ const CSS_TEXT = `/* IVY Phone — интерфейс телефона для р
 }
 
 [data-skin="iphone4"] .ivyph-bub time { opacity: .5; }
+[data-skin="iphone4"] .ivyph-more { color: #3a3f45; }
+[data-skin="iphone4"] .ivyph-out .ivyph-more { color: #1c3d10; }
 
 [data-skin="iphone4"] .ivyph-compose {
     background: linear-gradient(180deg, #b6bcc3, #8d959e);
@@ -1466,6 +1485,7 @@ const DEFAULTS = {
     prefill: '',
     skin: 'modern',
     camera: 'iphone4',
+    selfieBias: 55,
     scams: false,
     chatBadge: true,
     proseScan: true,
@@ -1871,7 +1891,9 @@ async function generatePhoto(ev) {
 
     const who = ev.dir === 'in' ? capitalize(c?.name || ev.from) : '';
     const cam = CAMERAS[s.camera]?.tech || '';
-    const prompt = [who, c?.anchor, c?.clothes, cleanPrompt, cam].filter(Boolean).join(', ');
+    // Техника съёмки — в начало: начало промпта модель отрабатывает сильнее,
+    // иначе кадр выходит вылизанным, как с зеркалки.
+    const prompt = [cam, who, c?.anchor, c?.clothes, cleanPrompt].filter(Boolean).join(', ');
 
     ev.state = 'pending';
     render();
@@ -1901,32 +1923,65 @@ const CAMERAS = {
     none: { label: 'Без обработки', tech: '' },
     modern: {
         label: 'Современный смартфон',
-        tech: 'shot on a modern smartphone, casual snapshot, natural handheld framing, '
-            + 'slightly imperfect composition, everyday lighting',
+        tech: 'casual smartphone snapshot, handheld, slightly off-centre framing, '
+            + 'ordinary available light, no professional lighting, no cinematic grading',
     },
     iphone4: {
         label: 'Телефон 2010-х',
-        tech: 'shot on an early-2010s phone camera, 5MP, soft focus, visible noise in shadows, '
-            + 'slight lens flare, harsh on-camera flash indoors, muted contrast, small sensor look, '
-            + 'casual amateur snapshot',
+        tech: 'amateur photo taken on a 2011 phone camera, tiny sensor, 5 megapixels, '
+            + 'flat low dynamic range, blown-out highlights and murky shadows, '
+            + 'slightly soft unsharp detail, cool washed-out colours, '
+            + 'harsh direct flash if indoors or at night, plain handheld framing, '
+            + 'no HDR, no bokeh, no professional lighting, no cinematic colour grading, '
+            + 'not a DSLR photo, not a studio shot',
     },
     oldphone: {
         label: 'Старый кнопочный',
-        tech: 'shot on an old VGA camera phone, very low resolution, heavy grain, smeared detail, '
-            + 'washed colours, motion blur, dim exposure, crude amateur snapshot',
+        tech: 'photo taken on a mid-2000s camera phone, very low resolution, '
+            + 'soft mushy detail, flat dull colours, dim underexposed, '
+            + 'plain snapshot framing, no HDR, no bokeh, not a DSLR photo',
     },
     film: {
         label: 'Плёночная мыльница',
-        tech: 'shot on a disposable film camera, 35mm grain, direct flash, slight red shift, '
-            + 'date stamp look, imperfect framing',
+        tech: 'photo taken on a point-and-shoot film camera, direct flash, '
+            + 'warm faded colours, soft focus, plain snapshot framing, '
+            + 'no HDR, no cinematic grading',
     },
 };
 
-const SHOTS = 'Choose the shot type the way a real person would: a selfie at arm\'s length, '
-    + 'a mirror selfie, a photo of what is in front of them, a close-up of an object, '
-    + 'or a view out of a window. Match it to what was asked and where they are. '
-    + 'It must look taken BY this person on their own phone — never a posed studio portrait, '
-    + 'never a third-person shot of them from across the room unless someone else is holding the camera.';
+const SHOT_RULE = 'It must look taken BY this person on their own phone — never a posed studio '
+    + 'portrait, never a third-person shot of them from across the room unless someone else '
+    + 'is holding the camera.';
+
+const SHOT_KINDS = {
+    selfie: 'A selfie held at arm\'s length: their face fills most of the frame, '
+        + 'looking into the lens, arm visible at the edge.',
+    mirror: 'A mirror selfie: they are reflected in a mirror with the phone visible in frame.',
+    subject: 'A photo of the specific thing the owner asked about, held up or lying in front of them, '
+        + 'filling the frame. The person may appear only as a hand.',
+    around: 'A photo of what is in front of them right now — the room, the street, the view — '
+        + 'taken from where they are standing or sitting. No face.',
+    object: 'A close-up of a single object near them, shot from above or held in one hand.',
+};
+
+// Просьба может прямо называть предмет — тогда снимаем его, а не лицо.
+function pickShot(request, selfieBias) {
+    const r = String(request || '').toLowerCase();
+
+    const aboutThem = /(you|yourself|your face|selfie|себя|тебя|своё лицо|селфи)/i.test(r);
+    const namesThing = /\b(of|with)\s+(the\s+|your\s+|a\s+)?[a-z]{3,}/i.test(r)
+        || /(ключ|фото\s+\S+|снимок\s+\S+|покажи\s+\S+|room|keys|car|dog|window|street|desk|bed|food)/i.test(r);
+
+    if (aboutThem) return Math.random() < 0.72 ? 'selfie' : 'mirror';
+    if (namesThing && !aboutThem) return 'subject';
+
+    const roll = Math.random() * 100;
+    const bias = Number(selfieBias);
+    if (roll < bias * 0.75) return 'selfie';
+    if (roll < bias) return 'mirror';
+    if (roll < bias + (100 - bias) * 0.55) return 'around';
+    return 'object';
+}
 
 const DSTATE = { sent: ' · sent', delivered: ' · delivered', read: ' · read' };
 
@@ -3580,7 +3635,10 @@ async function deliverPhoto(c, request, sentEvent) {
         render();
 
         const scene = sceneContext(6);
-        const shot = await askModel([
+        const shot = pickShot(request, settings().selfieBias);
+        logDebug(`кадр: ${shot}`);
+
+        const описание = await askModel([
             cardContext(),
             await lorebookContext(`${scene} ${c.name}`),
             `Current scene:\n${scene}`,
@@ -3591,8 +3649,11 @@ async function deliverPhoto(c, request, sentEvent) {
             `That is a request for a photo. ${c.name} takes it and sends it — they do not refuse,`,
             `do not promise it for later, do not answer in words.`,
             `Describe the photo they actually take, in English, as an image prompt.`,
-            SHOTS,
+            `Shot type for this photo: ${SHOT_KINDS[shot]}`,
+            SHOT_RULE,
             `Framing only: subject, place, light, time of day, angle, what is in frame.`,
+            `Keep it plain and ordinary. Do not add artistic words like cinematic, dramatic,`,
+            `moody, golden hour, bokeh, professional, high detail — this is a throwaway phone snap.`,
             `Do not describe how anyone looks — appearance is attached separately.`,
             `One line, under 200 characters, no quotes, no explanation, no HEADER or other UI panel.`,
         ].filter(Boolean).join('\n\n'));
@@ -3641,8 +3702,11 @@ async function askForPhoto(k) {
         c.clothes ? `What they are wearing: ${c.clothes}` : '',
         `The phone owner just asked ${c.name} to send a picture.`,
         `Describe the photo ${c.name} would actually take right now, in English, as an image prompt.`,
-        SHOTS,
+        `Shot type for this photo: ${SHOT_KINDS[shot]}`,
+        SHOT_RULE,
         `Only the framing: place, light, time of day, angle, what is in frame.`,
+        `Keep it plain and ordinary. Do not add artistic words like cinematic, dramatic,`,
+        `moody, golden hour, bokeh, professional, high detail — this is a throwaway phone snap.`,
         `Do not describe how anyone looks — appearance is attached separately.`,
         `One line, under 200 characters, no quotes, no explanation.`,
         `Do NOT include any HEADER, CROSSROADS, COMMENTS or other UI panel. Just the plain image description.`,
