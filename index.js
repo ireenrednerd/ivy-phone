@@ -839,6 +839,96 @@ const CSS_TEXT = `/* IVY Phone — интерфейс телефона для р
 
 .ivyph-bub { position: relative; }
 
+/* Три точки в углу пузыря: действия должны быть видны, а не прятаться
+   за тапом по всему сообщению. */
+.ivyph-more {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: currentColor;
+    opacity: .3;
+    cursor: pointer;
+    transition: opacity .15s, background .15s;
+}
+
+.ivyph-bub:hover .ivyph-more { opacity: .7; }
+.ivyph-more:hover { opacity: 1 !important; background: rgba(127, 139, 149, .18); }
+.ivyph-more .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
+
+.ivyph-bub { padding-right: 28px; }
+.ivyph-bub time { padding-right: 2px; }
+
+.ivyph-msgtools {
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 92%;
+}
+
+.ivyph-msgtools button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.ivyph-msgtools .ivyph-i { width: 13px; height: 13px; vertical-align: 0; }
+
+/* ---------------------------------------------------------- viewer */
+
+.ivyph-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 200000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 14px 80px;
+    background: rgba(5, 7, 9, .93);
+    animation: ivyph-fade .16s ease-out;
+}
+
+@keyframes ivyph-fade { from { opacity: 0; } }
+
+.ivyph-viewer img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+.ivyph-viewer-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+}
+
+.ivyph-viewer-bar button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 15px;
+    border: 1px solid #3a444d;
+    border-radius: 999px;
+    background: rgba(28, 34, 39, .92);
+    color: #e4e8eb;
+    font: 600 12.5px -apple-system, "Segoe UI", Roboto, sans-serif;
+    cursor: pointer;
+}
+
+.ivyph-viewer-bar button:hover { background: rgba(40, 48, 55, .96); }
+.ivyph-viewer-bar .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
+
+.ivyph-photo { cursor: zoom-in; }
+
 .ivyph-picker {
     align-self: center;
     display: flex;
@@ -1375,6 +1465,7 @@ const DEFAULTS = {
     compact: false,
     prefill: '',
     skin: 'modern',
+    camera: 'iphone4',
     scams: false,
     chatBadge: true,
     proseScan: true,
@@ -1487,7 +1578,7 @@ function contact(name, patch) {
     if (!s.contacts[k]) {
         s.contacts[k] = {
             key: k, name: String(name).trim(), label: '', lore: '',
-            number: '', handle: '', anchor: '', style: '', color: '', avatar: '',
+            number: '', handle: '', anchor: '', clothes: '', place: '', style: '', color: '', avatar: '',
         };
     }
     if (patch) Object.assign(s.contacts[k], patch);
@@ -1779,7 +1870,8 @@ async function generatePhoto(ev) {
         .trim();
 
     const who = ev.dir === 'in' ? capitalize(c?.name || ev.from) : '';
-    const prompt = [who, c?.anchor, cleanPrompt].filter(Boolean).join(', ');
+    const cam = CAMERAS[s.camera]?.tech || '';
+    const prompt = [who, c?.anchor, c?.clothes, cleanPrompt, cam].filter(Boolean).join(', ');
 
     ev.state = 'pending';
     render();
@@ -1802,6 +1894,39 @@ async function generatePhoto(ev) {
 // второстепенному персонажу отвечать своим голосом, а не устами активной
 // карточки. Профиль подключения берётся из настроек: можно поставить
 // модель дешевле основной.
+
+// Профили камеры. Задача — чтобы фото выглядело снятым самим персонажем
+// на его телефон, а не студийным кадром со стороны.
+const CAMERAS = {
+    none: { label: 'Без обработки', tech: '' },
+    modern: {
+        label: 'Современный смартфон',
+        tech: 'shot on a modern smartphone, casual snapshot, natural handheld framing, '
+            + 'slightly imperfect composition, everyday lighting',
+    },
+    iphone4: {
+        label: 'Телефон 2010-х',
+        tech: 'shot on an early-2010s phone camera, 5MP, soft focus, visible noise in shadows, '
+            + 'slight lens flare, harsh on-camera flash indoors, muted contrast, small sensor look, '
+            + 'casual amateur snapshot',
+    },
+    oldphone: {
+        label: 'Старый кнопочный',
+        tech: 'shot on an old VGA camera phone, very low resolution, heavy grain, smeared detail, '
+            + 'washed colours, motion blur, dim exposure, crude amateur snapshot',
+    },
+    film: {
+        label: 'Плёночная мыльница',
+        tech: 'shot on a disposable film camera, 35mm grain, direct flash, slight red shift, '
+            + 'date stamp look, imperfect framing',
+    },
+};
+
+const SHOTS = 'Choose the shot type the way a real person would: a selfie at arm\'s length, '
+    + 'a mirror selfie, a photo of what is in front of them, a close-up of an object, '
+    + 'or a view out of a window. Match it to what was asked and where they are. '
+    + 'It must look taken BY this person on their own phone — never a posed studio portrait, '
+    + 'never a third-person shot of them from across the room unless someone else is holding the camera.';
 
 const DSTATE = { sent: ' · sent', delivered: ' · delivered', read: ' · read' };
 
@@ -2024,7 +2149,8 @@ async function askModel(prompt) {
                     quietToLoud: false,
                     skipWIAN: true,
                     quietName: 'Phone',
-                    responseLength: Math.max(120, Number(s.replyLength) || 320),
+                    // параметр в токенах: даём запас, иначе модель обрывается на полуслове
+                    responseLength: Math.max(200, Math.ceil((Number(s.replyLength) || 320) / 2)),
                 });
             } catch {
                 out = await ctx.generateQuietPrompt(prompt, false, true);
@@ -2068,12 +2194,17 @@ async function generateReply(c, outgoing, sentEvent, opts = {}) {
         let text = await askModel(prompt);
         text = String(text || '').trim().replace(/^["']|["']$/g, '');
 
-        // последний рубеж: смс не может быть длиной с пост
-        const cap = Math.max(160, Number(settings().replyLength) || 320);
-        if (text.length > cap * 1.6) {
-            const cut = text.slice(0, cap);
-            text = cut.slice(0, Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '), cap - 40) + 1).trim();
-            logDebug('ответ был длиной с пост, обрезан');
+        // Рубим только явный лонгрид и строго по концу предложения:
+        // обрывать смс на полуслове хуже, чем показать её длиннее нормы.
+        const cap = Math.max(240, Number(settings().replyLength) || 320);
+        if (text.length > cap * 3) {
+            const room = text.slice(0, cap * 2);
+            const end = Math.max(
+                room.lastIndexOf('. '), room.lastIndexOf('! '), room.lastIndexOf('? '),
+                room.lastIndexOf('.\n'), room.lastIndexOf('…'),
+            );
+            text = (end > cap * 0.4 ? room.slice(0, end + 1) : room).trim();
+            logDebug('ответ был длиной с пост, обрезан по концу фразы');
         }
 
         // персонаж может прочитать и не ответить — это тоже ответ
@@ -2763,16 +2894,32 @@ function renderThread(k) {
         const react = e.reaction ? `<span class="ivyph-react">${esc(e.reaction)}</span>` : '';
         const dstate = e.dir === 'out' && e.dstate
             ? `<span class="ivyph-dstate">${esc(DSTATE[e.dstate] || e.dstate)}</span>` : '';
-        const picker = screen.react === e.id ? `
+        const isPhoto = e.type === 'photo';
+        const tools = [];
+
+        if (isPhoto) {
+            if (e.image) {
+                tools.push(`<button data-open-img="${esc(e.id)}">${icon('expand')} Открыть</button>`);
+                tools.push(`<button data-save-img="${esc(e.id)}">${icon('save')} Сохранить</button>`);
+            }
+            tools.push(`<button data-gen="${esc(e.id)}">${icon('refresh')} Ещё раз</button>`);
+        } else {
+            if (e.dir === 'in') tools.push(`<button data-regen="${esc(e.id)}">${icon('refresh')} Переписать</button>`);
+            tools.push(`<button data-edit-msg="${esc(e.id)}">Изменить</button>`);
+            tools.push(`<button data-copy-msg="${esc(e.id)}">Копировать</button>`);
+        }
+        tools.push(`<button class="ivyph-danger-text" data-del-msg="${esc(e.id)}">${icon('trash')} Удалить</button>`);
+
+        const menu = screen.menu === e.id ? `
             <span class="ivyph-picker">
                 ${REACTIONS.map(r => `<button data-react="${esc(e.id)}" data-emoji="${r}">${r}</button>`).join('')}
             </span>
-            <span class="ivyph-msgtools">
-                <button data-edit-msg="${esc(e.id)}">Edit</button>
-                <button data-copy-msg="${esc(e.id)}">Copy</button>
-                <button class="ivyph-danger-text" data-del-msg="${esc(e.id)}">Удалить</button>
-            </span>` : '';
-        return `<div class="ivyph-bub ivyph-${e.dir}${e.scam ? ' ivyph-scam' : ''}" data-ev="${esc(e.id)}">${who}${inner}<time>${esc(stampOf(e))}${dstate}</time>${react}</div>${picker}`;
+            <span class="ivyph-msgtools">${tools.join('')}</span>` : '';
+
+        return `<div class="ivyph-bub ivyph-${e.dir}${e.scam ? ' ivyph-scam' : ''}" data-ev="${esc(e.id)}">
+            ${who}${inner}<time>${esc(stampOf(e))}${dstate}</time>${react}
+            <button class="ivyph-more" data-menu="${esc(e.id)}" title="Действия">${icon('dots')}</button>
+        </div>${menu}`;
     }).join('');
 
     const typing = live.typing === k
@@ -2848,7 +2995,7 @@ function renderNewGroup() {
 
 function renderCard(k) {
     const isNew = k === '__new__';
-    const blank = { name: '', label: '', lore: '', number: '', handle: '', anchor: '', style: '', color: '#3d4a55', avatar: '', blocked: false };
+    const blank = { name: '', label: '', lore: '', number: '', handle: '', anchor: '', clothes: '', place: '', style: '', color: '#3d4a55', avatar: '', blocked: false };
     // читаем напрямую из хранилища: contact() создал бы пустой контакт
     const c = isNew ? blank : (store().contacts[resolveKey(k)] || blank);
     return `<div class="ivyph-head ivyph-head-nav">
@@ -2862,6 +3009,8 @@ function renderCard(k) {
             <label>Номер<input data-f="number" value="${esc(c.number)}" placeholder="+1 555 0100"></label>
             <label>Ник<input data-f="handle" value="${esc(c.handle)}" placeholder="@handle"></label>
             <label>Внешность — для генерации фото<textarea data-f="anchor" rows="3" placeholder="рост, лицо, волосы, одежда">${esc(c.anchor)}</textarea></label>
+            <label>Во что одет сейчас<textarea data-f="clothes" rows="2" placeholder="фланель, потёртые джинсы, ботинки">${esc(c.clothes || '')}</textarea></label>
+            <label>Где живёт, как выглядит его дом<textarea data-f="place" rows="3" placeholder="съёмная квартира над мастерской, бардак, лампа у кровати">${esc(c.place || '')}</textarea></label>
             <label>Манера переписки<textarea data-f="style" rows="3" placeholder="строчными, без точек, без смайлов, коротко">${esc(c.style || '')}</textarea></label>
             <label class="ivyph-check">
                 <input type="checkbox" data-f="blocked" ${c.blocked ? 'checked' : ''}>
@@ -3094,16 +3243,42 @@ function wire() {
         });
     }
 
-    s.querySelectorAll('[data-ev]').forEach(n => n.addEventListener('click', ev => {
-        if (ev.target.closest('[data-react]') || ev.target.closest('img')) return;
-        screen.react = screen.react === n.dataset.ev ? null : n.dataset.ev;
+    s.querySelectorAll('[data-menu]').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        screen.menu = screen.menu === n.dataset.menu ? null : n.dataset.menu;
         render();
+    }));
+
+    s.querySelectorAll('.ivyph-photo').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        openViewer(n.getAttribute('src'));
+    }));
+
+    s.querySelectorAll('[data-open-img]').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const e = store().events.find(x => x.id === n.dataset.openImg);
+        if (e?.image) openViewer(e.image);
+        screen.menu = null;
+        render();
+    }));
+
+    s.querySelectorAll('[data-save-img]').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const e = store().events.find(x => x.id === n.dataset.saveImg);
+        if (e?.image) saveImage(e.image);
+        screen.menu = null;
+        render();
+    }));
+
+    s.querySelectorAll('[data-regen]').forEach(n => n.addEventListener('click', ev => {
+        ev.stopPropagation();
+        regenerateMessage(n.dataset.regen);
     }));
 
     s.querySelectorAll('[data-edit-msg]').forEach(n => n.addEventListener('click', ev => {
         ev.stopPropagation();
         screen.edit = n.dataset.editMsg;
-        screen.react = null;
+        screen.menu = null;
         render();
     }));
 
@@ -3128,7 +3303,7 @@ function wire() {
         ev.stopPropagation();
         const e = store().events.find(x => x.id === n.dataset.copyMsg);
         try { await navigator.clipboard.writeText(e?.text || ''); } catch { /* нет доступа */ }
-        screen.react = null;
+        screen.menu = null;
         render();
     }));
 
@@ -3136,7 +3311,7 @@ function wire() {
         ev.stopPropagation();
         const st = store();
         st.events = st.events.filter(x => x.id !== n.dataset.delMsg);
-        screen.react = null;
+        screen.menu = null;
         save();
         pushInjection();
         render();
@@ -3146,7 +3321,7 @@ function wire() {
         ev.stopPropagation();
         const e = store().events.find(x => x.id === n.dataset.react);
         if (e) e.reaction = e.reaction === n.dataset.emoji ? '' : n.dataset.emoji;
-        screen.react = null;
+        screen.menu = null;
         save();
         render();
     }));
@@ -3307,6 +3482,63 @@ function shrinkImage(file, size = 160) {
     });
 }
 
+// Картинка на весь экран поверх телефона.
+function openViewer(src) {
+    if (!src) return;
+    const old = document.getElementById('ivyph-viewer');
+    if (old) old.remove();
+
+    const box = el('div', 'ivyph-viewer');
+    box.id = 'ivyph-viewer';
+    box.innerHTML = `<img src="${esc(src)}" alt="">
+        <div class="ivyph-viewer-bar">
+            <button data-viewer-save>${icon('save')} Сохранить</button>
+            <button data-viewer-close>${icon('close')} Закрыть</button>
+        </div>`;
+    box.addEventListener('click', ev => {
+        if (ev.target.closest('[data-viewer-save]')) { saveImage(src); return; }
+        if (ev.target.tagName !== 'IMG' || ev.target.closest('[data-viewer-close]')) box.remove();
+    });
+    (document.documentElement || document.body).appendChild(box);
+}
+
+// Сохранение: у картинки может быть и обычный путь, и data-url.
+async function saveImage(src) {
+    try {
+        const a = document.createElement('a');
+        a.href = src;
+        a.download = `phone_${Date.now()}.jpg`;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    } catch (err) {
+        logDebug(`не удалось сохранить: ${err?.message || err}`);
+    }
+}
+
+// Переписать ответ заново: старое сообщение уходит, приходит новое.
+async function regenerateMessage(id) {
+    const st = store();
+    const idx = st.events.findIndex(e => e.id === id);
+    if (idx < 0) return;
+
+    const old = st.events[idx];
+    const c = contact(old.from);
+    if (!c) return;
+
+    // на что отвечали — последнее исходящее перед этим сообщением
+    const prior = st.events.slice(0, idx).reverse()
+        .find(e => e.dir === 'out' && e.type === 'sms');
+
+    st.events.splice(idx, 1);
+    screen.menu = null;
+    save();
+    render();
+
+    await generateReply(c, prior?.text || '', null);
+}
+
 // ---------------------------------------------------------------- outgoing
 
 async function pushToChat(marker) {
@@ -3353,10 +3585,13 @@ async function deliverPhoto(c, request, sentEvent) {
             await lorebookContext(`${scene} ${c.name}`),
             `Current scene:\n${scene}`,
             c.lore ? `Who ${c.name} is: ${c.lore}` : '',
+            c.place ? `Where they live: ${c.place}` : '',
+            c.clothes ? `What they are wearing: ${c.clothes}` : '',
             `The phone owner just texted ${c.name}: "${request}"`,
             `That is a request for a photo. ${c.name} takes it and sends it — they do not refuse,`,
             `do not promise it for later, do not answer in words.`,
             `Describe the photo they actually take, in English, as an image prompt.`,
+            SHOTS,
             `Framing only: subject, place, light, time of day, angle, what is in frame.`,
             `Do not describe how anyone looks — appearance is attached separately.`,
             `One line, under 200 characters, no quotes, no explanation, no HEADER or other UI panel.`,
@@ -3402,8 +3637,11 @@ async function askForPhoto(k) {
         await lorebookContext(`${scene} ${c.name}`),
         `Current scene:\n${scene}`,
         c.lore ? `Who ${c.name} is: ${c.lore}` : '',
+        c.place ? `Where they live: ${c.place}` : '',
+        c.clothes ? `What they are wearing: ${c.clothes}` : '',
         `The phone owner just asked ${c.name} to send a picture.`,
         `Describe the photo ${c.name} would actually take right now, in English, as an image prompt.`,
+        SHOTS,
         `Only the framing: place, light, time of day, angle, what is in frame.`,
         `Do not describe how anyone looks — appearance is attached separately.`,
         `One line, under 200 characters, no quotes, no explanation.`,
@@ -3732,6 +3970,11 @@ function buildSettingsPanel() {
                         <option value="iphone4">iPhone 4S</option>
                         <option value="android">Android</option>
                         <option value="nokia">Старая Nokia</option>
+                    </select>
+                </label>
+                <label>Чем снято фото
+                    <select class="text_pole" data-s="camera">
+                        ${Object.entries(CAMERAS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}
                     </select>
                 </label>
                 <label class="checkbox_label"><input type="checkbox" data-s="scams"> Спам и мошенники</label>

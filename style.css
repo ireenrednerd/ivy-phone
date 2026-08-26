@@ -828,6 +828,96 @@
 
 .ivyph-bub { position: relative; }
 
+/* Три точки в углу пузыря: действия должны быть видны, а не прятаться
+   за тапом по всему сообщению. */
+.ivyph-more {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: currentColor;
+    opacity: .3;
+    cursor: pointer;
+    transition: opacity .15s, background .15s;
+}
+
+.ivyph-bub:hover .ivyph-more { opacity: .7; }
+.ivyph-more:hover { opacity: 1 !important; background: rgba(127, 139, 149, .18); }
+.ivyph-more .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
+
+.ivyph-bub { padding-right: 28px; }
+.ivyph-bub time { padding-right: 2px; }
+
+.ivyph-msgtools {
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 92%;
+}
+
+.ivyph-msgtools button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.ivyph-msgtools .ivyph-i { width: 13px; height: 13px; vertical-align: 0; }
+
+/* ---------------------------------------------------------- viewer */
+
+.ivyph-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 200000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 14px 80px;
+    background: rgba(5, 7, 9, .93);
+    animation: ivyph-fade .16s ease-out;
+}
+
+@keyframes ivyph-fade { from { opacity: 0; } }
+
+.ivyph-viewer img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+.ivyph-viewer-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+}
+
+.ivyph-viewer-bar button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 15px;
+    border: 1px solid #3a444d;
+    border-radius: 999px;
+    background: rgba(28, 34, 39, .92);
+    color: #e4e8eb;
+    font: 600 12.5px -apple-system, "Segoe UI", Roboto, sans-serif;
+    cursor: pointer;
+}
+
+.ivyph-viewer-bar button:hover { background: rgba(40, 48, 55, .96); }
+.ivyph-viewer-bar .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
+
+.ivyph-photo { cursor: zoom-in; }
+
 .ivyph-picker {
     align-self: center;
     display: flex;
