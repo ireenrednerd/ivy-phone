@@ -1330,7 +1330,6 @@ function store() {
     const s = chat_metadata[MODULE];
     if (!s.contacts) s.contacts = {};
     if (!s.groups) s.groups = {};
-    if (!s.drafts) s.drafts = {};
     if (!s.events) s.events = [];
     return s;
 }
@@ -1609,6 +1608,7 @@ async function generateViaTag(ev, prompt) {
     const ctx = getContext();
     const safe = prompt.replace(/"/g, "'").replace(/[\r\n]+/g, ' ').trim();
     const tag = settings().imageTag.replace('{{prompt}}', () => safe);
+    const token = `c${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     // Носитель тега — ОБЫЧНОЕ сообщение персонажа. sillyimages сканирует
     // только видимые ответы, поэтому не помечаем его системным и не прячем
@@ -1619,7 +1619,7 @@ async function generateViaTag(ev, prompt) {
         is_system: false,
         send_date: typeof ctx.getMessageTimeStamp === 'function' ? ctx.getMessageTimeStamp() : new Date().toISOString(),
         mes: tag,
-        extra: { ivyph_carrier: true },
+        extra: { ivyph_carrier: token },
     };
     ctx.chat.push(carrier);
     const idx = ctx.chat.length - 1;
@@ -1643,7 +1643,7 @@ async function generateViaTag(ev, prompt) {
         if (src && !/IMG:GEN/i.test(src) && !/error\.svg/i.test(src)) {
             ev.image = src;
             ev.state = 'done';
-            removeCarrier(idx);
+            removeCarrier(token);
             return true;
         }
         if (/error\.svg/i.test(body)) {
@@ -1653,20 +1653,24 @@ async function generateViaTag(ev, prompt) {
         }
     }
 
-    removeCarrier(idx);
+    removeCarrier(token);
     return false;
 }
 
 // Убираем носитель из чата целиком после того, как картинка забрана
 // (или не пришла). Именно удаляем, а не оставляем пустой системный след.
-async function removeCarrier(idx) {
+// Ищем носитель по метке, а не по индексу: за время генерации в чат могло
+// прийти новое сообщение, и индекс уехал бы на чужое.
+async function removeCarrier(token) {
     try {
         const ctx = getContext();
-        if (ctx.chat[idx]?.extra?.ivyph_carrier) {
-            ctx.chat.splice(idx, 1);
-            await ctx.saveChat();
-            document.querySelector(`#chat .mes[mesid="${idx}"]`)?.remove();
-        }
+        const i = (ctx.chat || []).findIndex(m => m?.extra?.ivyph_carrier === token);
+        if (i < 0) return;
+        ctx.chat.splice(i, 1);
+        await ctx.saveChat();
+        // перерисовываем ленту, иначе съедут mesid у следующих сообщений
+        if (typeof ctx.reloadCurrentChat === 'function') await ctx.reloadCurrentChat();
+        else document.querySelector(`#chat .mes[mesid="${i}"]`)?.remove();
     } catch { /* не критично */ }
 }
 
@@ -1714,6 +1718,10 @@ const SCAM_POOL = [
     'Bank alert: unusual sign-in detected. Verify your identity to avoid suspension.',
     'Hey, is this still your number? I got it from an old friend :)',
 ];
+
+// За один ход телефон не должен слать больше одного фонового запроса:
+// разбор прозы и «контакт пишет сам» вместе давали двойной расход токенов.
+let busyTurn = false;
 
 const debugLog = [];
 
@@ -1855,6 +1863,10 @@ async function buildReplyPrompt(c, outgoing) {
         `letters writes differently from someone raised on a keypad. Two contacts must never sound alike.`,
         `Keep it consistent with how ${c.name} already texted earlier in this thread.`,
         `Plain text under ${s.replyLength} characters, no quotation marks, no narration, no name prefix.`,
+        `This phone can send photos and the character knows how to use it. Never write that you`,
+        `cannot send pictures, do not know how, will send it later, or will show it in person.`,
+        `If the owner asks to see something or someone, that request is handled elsewhere —`,
+        `just answer the human part of the message naturally and leave the photo alone.`,
         `Default behaviour is to REPLY. People answer their phone messages, especially people who`,
         `care about the owner. Answer with exactly [silence] ONLY in a genuinely strong case:`,
         `they are in an active fight with the owner and have said they are done talking, they are`,
@@ -1890,7 +1902,7 @@ async function askModel(prompt) {
 
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-async function generateReply(c, outgoing, sentEvent) {
+async function generateReply(c, outgoing, sentEvent, opts = {}) {
     try {
         // доставка занимает время, как в жизни
         if (sentEvent) {
@@ -1902,15 +1914,22 @@ async function generateReply(c, outgoing, sentEvent) {
             render();
         }
 
-        store().typing = c.key;
+        live.typing = c.key;
         render();
 
-        let text = await askModel(await buildReplyPrompt(c, outgoing));
+        let prompt = await buildReplyPrompt(c, outgoing);
+        if (opts.photoPending) {
+            prompt += `\n\nThe owner asked to see something and the photo is already being taken —`
+                + ` it will arrive right after this message. Reply only to the human part in one short line.`
+                + ` Do not mention sending, not sending, or postponing a picture. Never answer [silence] here.`;
+        }
+
+        let text = await askModel(prompt);
         text = String(text || '').trim().replace(/^["']|["']$/g, '');
 
         // персонаж может прочитать и не ответить — это тоже ответ
         if (!text || /^\[?silence\]?$/i.test(text)) {
-            logDebug(`${c.name} прочитал и промолчал`);
+            if (!opts.photoPending) logDebug(`${c.name} прочитал и промолчал`);
             return;
         }
 
@@ -1926,7 +1945,7 @@ async function generateReply(c, outgoing, sentEvent) {
         logDebug(`ошибка генерации: ${err?.message || err}`);
         console.error('[IVY Phone]', err);
     } finally {
-        store().typing = '';
+        live.typing = '';
         render();
     }
 }
@@ -2066,7 +2085,7 @@ function scrubAll() {
     try {
         const ctx = getContext();
         (ctx.chat || []).forEach((m, i) => {
-            if (m?.extra?.ivyph_carrier) {
+            if (m?.extra?.ivyph_carrier) {  // метка носителя — строка-токен
                 document.querySelector(`#chat .mes[mesid="${i}"]`)
                     ?.style.setProperty('display', 'none', 'important');
             }
@@ -2188,6 +2207,11 @@ async function syncFromLorebook() {
 
 let ui = null;
 let screen = { name: 'home', arg: null };
+
+// Живое состояние: индикатор набора и черновики. Держим в памяти, а не в
+// метаданных чата — иначе «печатает…» залипает навсегда после перезагрузки,
+// а недописанные черновики копятся в сохранённом файле.
+const live = { typing: '', drafts: {} };
 
 function el(tag, cls, html) {
     const n = document.createElement(tag);
@@ -2503,7 +2527,15 @@ function renderHome() {
 function renderThread(k) {
     const all = store().events.filter(e => e.type !== 'call');
     const list = all.filter(e => threadKey(e) === k);
-    const c = list.length ? threadHead(k, list) : (contact(k) || { name: k });
+
+    // Пустая групповая ветка: контакт заводить нельзя, иначе в списке
+    // появляется фантом с именем вида «g:crew».
+    let c;
+    if (list.length) c = threadHead(k, list);
+    else if (k.startsWith('g:')) {
+        const g = store().groups[k.slice(2)];
+        c = { name: g?.name || k.slice(2), group: true, members: g?.members || [] };
+    } else c = contact(k) || { name: k };
     list.forEach(e => { e.read = true; });
     save();
 
@@ -2556,7 +2588,7 @@ function renderThread(k) {
         return `<div class="ivyph-bub ivyph-${e.dir}${e.scam ? ' ivyph-scam' : ''}" data-ev="${esc(e.id)}">${who}${inner}<time>${esc(stampOf(e))}${dstate}</time>${react}</div>${picker}`;
     }).join('');
 
-    const typing = store().typing === k
+    const typing = live.typing === k
         ? `<div class="ivyph-bub ivyph-in ivyph-typing"><i></i><i></i><i></i></div>` : '';
 
     return `<div class="ivyph-head ivyph-head-nav">
@@ -2564,7 +2596,7 @@ function renderThread(k) {
             <span class="ivyph-title">${esc(shown(c))}${c.group ? `<small>${esc(c.members.join(', '))}</small>` : ''}</span>
             <span class="ivyph-head-tools">
                 <button class="ivyph-icon-btn" data-wipe="${esc(k)}">${icon('trash')}</button>
-                <button class="ivyph-icon-btn" data-card="${esc(keyOf(k))}">${icon('info')}</button>
+                ${c.group ? '' : `<button class="ivyph-icon-btn" data-card="${esc(keyOf(k))}">${icon('info')}</button>`}
             </span>
         </div>
         <div class="ivyph-thread">${bubbles}${typing}</div>
@@ -2629,9 +2661,9 @@ function renderNewGroup() {
 
 function renderCard(k) {
     const isNew = k === '__new__';
-    const c = isNew
-        ? { name: '', label: '', lore: '', number: '', handle: '', anchor: '', style: '', color: '#3d4a55', avatar: '', blocked: false }
-        : (contact(k) || {});
+    const blank = { name: '', label: '', lore: '', number: '', handle: '', anchor: '', style: '', color: '#3d4a55', avatar: '', blocked: false };
+    // читаем напрямую из хранилища: contact() создал бы пустой контакт
+    const c = isNew ? blank : (store().contacts[resolveKey(k)] || blank);
     return `<div class="ivyph-head ivyph-head-nav">
             <button class="ivyph-back" data-go="contacts">${icon('chevronLeft')}</button>
             <span>${isNew ? 'New contact' : esc(shown(c))}</span>
@@ -2859,15 +2891,14 @@ function wire() {
     if (send) {
         const box = s.querySelector('.ivyph-compose textarea');
         const key = send.dataset.send;
-        const st = store();
-        box.value = st.drafts[key] || '';
-        box.addEventListener('input', () => { st.drafts[key] = box.value; });
+        box.value = live.drafts[key] || '';
+        box.addEventListener('input', () => { live.drafts[key] = box.value; });
 
         const fire = () => {
             const text = box.value.trim();
             if (!text) return;
             box.value = '';
-            delete st.drafts[key];
+            delete live.drafts[key];
             sendFromPhone(key, text);
         };
         send.addEventListener('click', fire);
@@ -3126,7 +3157,7 @@ async function deliverPhoto(c, request, sentEvent) {
             render();
         }
 
-        store().typing = resolveKey(c.name);
+        live.typing = resolveKey(c.name);
         render();
 
         const scene = sceneContext(6);
@@ -3144,7 +3175,7 @@ async function deliverPhoto(c, request, sentEvent) {
             `One line, under 200 characters, no quotes, no explanation, no HEADER or other UI panel.`,
         ].filter(Boolean).join('\n\n'));
 
-        store().typing = '';
+        live.typing = '';
 
         const prompt = stripPanels(shot).replace(/^["']|["']$/g, '').split('\n')[0].trim();
         if (!prompt || /HEADER|CROSSROADS|COMMENTS/i.test(prompt)) {
@@ -3162,7 +3193,7 @@ async function deliverPhoto(c, request, sentEvent) {
         pushInjection();
         if (settings().autoPhotos) generatePhoto(ev);
     } finally {
-        store().typing = '';
+        live.typing = '';
         render();
     }
 }
@@ -3175,7 +3206,7 @@ async function askForPhoto(k) {
     addEvent({ mesId, type: 'sms', dir: 'out', from: c.name, text: 'send me a picture', dstate: 'sent' });
     save();
 
-    store().typing = resolveKey(c.name);
+    live.typing = resolveKey(c.name);
     render();
 
     const scene = sceneContext(6);
@@ -3192,7 +3223,7 @@ async function askForPhoto(k) {
         `Do NOT include any HEADER, CROSSROADS, COMMENTS or other UI panel. Just the plain image description.`,
     ].filter(Boolean).join('\n\n'));
 
-    store().typing = '';
+    live.typing = '';
 
     let prompt = stripPanels(shot).replace(/^["']|["']$/g, '').split('\n')[0].trim();
     if (!prompt || /HEADER|CROSSROADS|COMMENTS/i.test(prompt)) {
@@ -3248,10 +3279,24 @@ async function sendFromPhone(k, text) {
 
     // «пришли фото цветка», «сфоткай», «покажи» — это просьба о картинке,
     // а не обычная реплика. Иначе модель отвечает прозой «пришлю позже».
-    const asksPhoto = /\b(pic|pics|picture|photo|photos|selfie|snap|send me a shot|show me)\b/i.test(text)
-        || /(фотк|фото|сфотк|снимок|сними|покажи|селфи|пришли\s+фот)/i.test(text);
+    // Просьба о картинке формулируется как угодно: «пришли фото», «покажи себя»,
+    // «send me yourself», «wanna see you». Ловим смысл, а не одно слово.
+    const asksPhoto =
+        /\b(pic|pics|picture|photo|photos|selfie|snap|shot)\b/i.test(text)
+        || /\b(send|show|gimme|give)\s+(me\s+)?(a\s+|the\s+)?(you|yourself|your\s+face|us)\b/i.test(text)
+        || /\b(wanna|want\s+to|let\s+me)\s+(see|look\s+at)\b/i.test(text)
+        || /\bshow\s+me\b/i.test(text)
+        || /(фотк|фото|сфотк|снимок|сними|селфи|покажи|скинь)/i.test(text)
+        || /(пришли|кинь|скинь)\s+(мне\s+)?(себя|своё|свое|фот)/i.test(text)
+        || /(хочу|дай)\s+(тебя\s+)?(увидеть|посмотреть|глянуть)/i.test(text);
 
-    if (mode === 'phone' && asksPhoto) { await deliverPhoto(c, text, sent); return; }
+    if (mode === 'phone' && asksPhoto) {
+        // в просьбе почти всегда есть и человеческая часть — на неё отвечаем словами,
+        // а снимок присылаем следом, как в жизни
+        await generateReply(c, text, sent, { photoPending: true });
+        await deliverPhoto(c, text, null);
+        return;
+    }
     if (mode === 'phone') await generateReply(c, text, sent);
     else if (mode === 'chat') await runSlash('/trigger');
 }
@@ -3348,6 +3393,20 @@ async function scanProse(mesId, text) {
     }
 }
 
+// Один фоновый запрос за ход, с приоритетом: сначала вытащить реально
+// произошедшее из прозы, и только если там пусто — дать шанс инициативе.
+async function backgroundWork(mesId, text) {
+    if (busyTurn) return;
+    busyTurn = true;
+    try {
+        const before = store().events.length;
+        await scanProse(mesId, text);
+        if (store().events.length === before) await maybeProactive();
+    } finally {
+        busyTurn = false;
+    }
+}
+
 // ---------------------------------------------------------------- events
 
 // Сообщения игрока: маркеры разбираем всегда, прозу — если включён подхват.
@@ -3382,9 +3441,8 @@ function ingest(mesId) {
     const made = parseBlocks(msg.mes, mesId);
 
     if (!made.length) {
-        scanProse(mesId, msg.mes);
         maybeScam();
-        maybeProactive();
+        backgroundWork(mesId, msg.mes);
         return;
     }
 
@@ -3395,7 +3453,7 @@ function ingest(mesId) {
     if (settings().autoPhotos) made.filter(e => e.type === 'photo').forEach(generatePhoto);
 
     maybeScam();
-    maybeProactive();
+    backgroundWork(mesId, msg.mes);
 
     const call = made.find(e => e.type === 'call' && e.status === 'incoming');
     if (call && settings().autoOpenOnCall) togglePhone(true);
