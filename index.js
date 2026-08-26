@@ -307,15 +307,20 @@ const CSS_TEXT = `/* IVY Phone — интерфейс телефона для р
 
 .ivyph-dot {
     flex: none;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 9px;
-    background: var(--ph-brick);
+    min-width: 21px;
+    height: 21px;
+    padding: 0 6px;
+    border-radius: 11px;
+    background: #c0453a;
     color: #fff;
-    font: 600 11px/18px var(--ph-mono);
+    font: 700 12px/21px var(--ph-face);
     text-align: center;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
 }
+
+/* непрочитанная ветка выделяется и текстом, а не только кружком */
+.ivyph-row-unread .ivyph-row-top b { color: var(--ph-text); }
+.ivyph-row-unread .ivyph-row-sub { color: var(--ph-text); opacity: .85; font-weight: 500; }
 
 .ivyph-call-row.ivyph-missed .ivyph-row-top b,
 .ivyph-call-row.ivyph-missed .ivyph-row-sub { color: #c9695b; }
@@ -576,6 +581,17 @@ const CSS_TEXT = `/* IVY Phone — интерфейс телефона для р
 }
 
 .ivyph-form input[type="color"] { padding: 2px; height: 34px; width: 60px; }
+
+/* Подсказка в пустом поле: приглушённая и курсивом, чтобы её нельзя было
+   спутать с реально введённым значением. */
+.ivyph-form input::placeholder,
+.ivyph-form textarea::placeholder,
+.ivyph-compose textarea::placeholder,
+.ivyph-edit-box::placeholder {
+    color: var(--ph-dim);
+    opacity: .55;
+    font-style: italic;
+}
 
 .ivyph-avatar-pick {
     display: flex;
@@ -1044,6 +1060,13 @@ const CSS_TEXT = `/* IVY Phone — интерфейс телефона для р
 }
 
 [data-skin="iphone4"] .ivyph-form label { color: #5c636b; }
+
+[data-skin="iphone4"] .ivyph-form input::placeholder,
+[data-skin="iphone4"] .ivyph-form textarea::placeholder,
+[data-skin="iphone4"] .ivyph-compose textarea::placeholder {
+    color: #8a929b;
+    opacity: .75;
+}
 [data-skin="iphone4"] .ivyph-check { color: #1a1d21 !important; }
 [data-skin="iphone4"] .ivyph-shot { background: #e2e5e8; border-color: #b9bdc2; }
 [data-skin="iphone4"] .ivyph-shot-desc { color: #5c636b; }
@@ -1270,6 +1293,58 @@ body.ivyph-mounted .ivyph-launcher { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
     .ivyph-typing i { animation: none; opacity: .6; }
 }
+
+/* ---------------------------------------------------------- chat mark */
+/* Плашка в ленте таверны: телефон что-то принял в этом сообщении.
+   Живёт вне корпуса, поэтому переменные задаём явно. */
+
+.ivyph-chatmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    margin: 10px 0 2px;
+    padding: 5px 11px 5px 9px;
+    border-radius: 999px;
+    border: 1px solid #3a444d;
+    background: rgba(30, 37, 43, .75);
+    color: #9fb0bd;
+    font: 600 11.5px/1 -apple-system, "Segoe UI", Roboto, sans-serif;
+    letter-spacing: .02em;
+    cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s;
+    vertical-align: middle;
+}
+
+.ivyph-chatmark:hover {
+    color: #e4e8eb;
+    border-color: #55636f;
+    background: rgba(38, 47, 54, .9);
+}
+
+.ivyph-chatmark > .ivyph-i {
+    width: 15px;
+    height: 15px;
+    opacity: .85;
+    vertical-align: 0;
+}
+
+.ivyph-chatmark span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ivyph-chatmark span .ivyph-i {
+    width: 13px;
+    height: 13px;
+    vertical-align: 0;
+    opacity: .7;
+}
+
+.ivyph-chatmark span + span {
+    padding-left: 9px;
+    border-left: 1px solid #3a444d;
+}
 `;
 
 function injectStyles() {
@@ -1301,6 +1376,7 @@ const DEFAULTS = {
     prefill: '',
     skin: 'modern',
     scams: false,
+    chatBadge: true,
     proseScan: true,
     proactive: true,
     proactiveChance: 12,
@@ -1367,6 +1443,15 @@ function mergeDuplicates() {
     const s = store();
     let changed = false;
 
+    // выметаем контакты, попавшие из нераскрытых макросов
+    for (const key of Object.keys(s.contacts)) {
+        if (/\{\{|\}\}/.test(key) || /\{\{|\}\}/.test(s.contacts[key].name || '')) {
+            delete s.contacts[key];
+            s.events = s.events.filter(e => !/\{\{|\}\}/.test(e.from || ''));
+            changed = true;
+        }
+    }
+
     for (const key of Object.keys(s.contacts)) {
         const target = resolveKey(s.contacts[key].name);
         if (target === key || !s.contacts[target]) continue;
@@ -1387,6 +1472,9 @@ function mergeDuplicates() {
 }
 
 function contact(name, patch) {
+    // {{char}}, {{user}} и прочие нераскрытые макросы контактами не становятся
+    if (/\{\{|\}\}/.test(String(name || ''))) return null;
+
     const s = store();
     const k = resolveKey(name);
     if (!k) return null;
@@ -2080,6 +2168,41 @@ function scrubMessage(el) {
     body.innerHTML = scrubText(body.innerHTML);
 }
 
+// Метка прямо в ленте: маркер вырезан, и без неё непонятно, что телефон
+// вообще что-то получил в этом сообщении.
+function markMessage(mesId) {
+    if (!settings().chatBadge) return;
+    const el = document.querySelector(`#chat .mes[mesid="${mesId}"]`);
+    if (!el || el.querySelector('.ivyph-chatmark')) return;
+
+    const evs = store().events.filter(e => e.mesId === mesId);
+    if (!evs.length) return;
+
+    const sms = evs.filter(e => e.type === 'sms' || e.type === 'voice').length;
+    const photos = evs.filter(e => e.type === 'photo').length;
+    const calls = evs.filter(e => e.type === 'call').length;
+
+    const bits = [];
+    if (sms) bits.push(`${icon('message')}${sms}`);
+    if (photos) bits.push(`${icon('image')}${photos}`);
+    if (calls) bits.push(`${icon('phone')}${calls}`);
+    if (!bits.length) return;
+
+    const mark = el.querySelector('.mes_text') || el;
+    const chip = el.ownerDocument.createElement('div');
+    chip.className = 'ivyph-chatmark';
+    chip.title = 'Открыть телефон';
+    chip.innerHTML = `${icon('device')}<span>${bits.join('</span><span>')}</span>`;
+    chip.addEventListener('click', () => togglePhone(true));
+    mark.appendChild(chip);
+}
+
+function markAll() {
+    if (!settings().chatBadge) return;
+    const seen = new Set(store().events.map(e => e.mesId).filter(v => v != null));
+    seen.forEach(markMessage);
+}
+
 function scrubAll() {
     // служебные сообщения генерации прячем всегда, независимо от настройки
     try {
@@ -2092,8 +2215,10 @@ function scrubAll() {
         });
     } catch { /* чат может быть ещё не готов */ }
 
-    if (!settings().hideMarkers) return;
-    document.querySelectorAll('#chat .mes').forEach(scrubMessage);
+    if (settings().hideMarkers) {
+        document.querySelectorAll('#chat .mes').forEach(scrubMessage);
+    }
+    markAll();
 }
 
 // ---------------------------------------------------------------- icons
@@ -2150,7 +2275,7 @@ function syncFromContext() {
         const chars = ctx.characters || [];
 
         const add = (ch) => {
-            if (!ch?.name) return;
+            if (!ch?.name || /\{\{|\}\}/.test(ch.name)) return;
             const c = contact(ch.name);
             if (c && !c.avatar) c.avatar = charAvatarUrl(ch.avatar);
         };
@@ -2513,8 +2638,8 @@ function renderHome() {
     }
     return headTitle('Messages', `<button class="ivyph-icon-btn" data-wand>${icon('wand')}</button>`) + `<ul class="ivyph-list">` + list.map(t => {
         const un = t.list.filter(e => !e.read && e.dir === 'in').length;
-        return `<li class="ivyph-row" data-thread="${esc(t.k)}">
-            ${avatarHtml(t.c)}
+        return `<li class="ivyph-row ${un ? 'ivyph-row-unread' : ''}" data-thread="${esc(t.k)}">
+            ${t.c.group ? groupAvatar(t.c.name) : avatarHtml(t.c)}
             <span class="ivyph-row-body">
                 <span class="ivyph-row-top"><b>${esc(shown(t.c) || t.k)}</b><time>${esc(stampOf(t.last))}</time></span>
                 <span class="ivyph-row-sub">${esc(preview(t.last))}</span>
@@ -2544,7 +2669,7 @@ function renderThread(k) {
             return `<div class="ivyph-bub ivyph-${e.dir} ivyph-editing">
                 <textarea class="ivyph-edit-box" rows="3">${esc(e.text)}</textarea>
                 <span class="ivyph-msgtools">
-                    <button data-save-msg="${esc(e.id)}">Save</button>
+                    <button data-save-msg="${esc(e.id)}">Сохранить</button>
                     <button data-cancel-msg>Cancel</button>
                 </span>
             </div>`;
@@ -2583,7 +2708,7 @@ function renderThread(k) {
             <span class="ivyph-msgtools">
                 <button data-edit-msg="${esc(e.id)}">Edit</button>
                 <button data-copy-msg="${esc(e.id)}">Copy</button>
-                <button class="ivyph-danger-text" data-del-msg="${esc(e.id)}">Delete</button>
+                <button class="ivyph-danger-text" data-del-msg="${esc(e.id)}">Удалить</button>
             </span>` : '';
         return `<div class="ivyph-bub ivyph-${e.dir}${e.scam ? ' ivyph-scam' : ''}" data-ev="${esc(e.id)}">${who}${inner}<time>${esc(stampOf(e))}${dstate}</time>${react}</div>${picker}`;
     }).join('');
@@ -2666,36 +2791,36 @@ function renderCard(k) {
     const c = isNew ? blank : (store().contacts[resolveKey(k)] || blank);
     return `<div class="ivyph-head ivyph-head-nav">
             <button class="ivyph-back" data-go="contacts">${icon('chevronLeft')}</button>
-            <span>${isNew ? 'New contact' : esc(shown(c))}</span>
+            <span>${isNew ? 'Новый контакт' : esc(shown(c))}</span>
         </div>
         <div class="ivyph-form" data-key="${esc(isNew ? '' : c.key)}">
-            <label>Name (used by the model)<input data-f="name" value="${esc(c.name)}" placeholder="John Doe"></label>
-            <label>Display as (only you see this)<input data-f="label" value="${esc(c.label || '')}" placeholder="как подписан у тебя"></label>
-            <label>Who they are in the lore<textarea data-f="lore" rows="3" placeholder="кем приходится, чем занят, что знает">${esc(c.lore || '')}</textarea></label>
-            <label>Number<input data-f="number" value="${esc(c.number)}" placeholder="+1 555 0100"></label>
-            <label>Handle<input data-f="handle" value="${esc(c.handle)}" placeholder="@handle"></label>
-            <label>Appearance anchor<textarea data-f="anchor" rows="3" placeholder="Used when generating photos">${esc(c.anchor)}</textarea></label>
-            <label>Texting style<textarea data-f="style" rows="3" placeholder="строчными, без точек, без смайлов, коротко">${esc(c.style || '')}</textarea></label>
+            <label>Имя — его видит модель<input data-f="name" value="${esc(c.name)}" placeholder="John Doe"></label>
+            <label>Как подписать — видишь только ты<input data-f="label" value="${esc(c.label || '')}" placeholder="как подписан у тебя"></label>
+            <label>Кто это в твоём мире<textarea data-f="lore" rows="3" placeholder="кем приходится, чем занят, что знает">${esc(c.lore || '')}</textarea></label>
+            <label>Номер<input data-f="number" value="${esc(c.number)}" placeholder="+1 555 0100"></label>
+            <label>Ник<input data-f="handle" value="${esc(c.handle)}" placeholder="@handle"></label>
+            <label>Внешность — для генерации фото<textarea data-f="anchor" rows="3" placeholder="рост, лицо, волосы, одежда">${esc(c.anchor)}</textarea></label>
+            <label>Манера переписки<textarea data-f="style" rows="3" placeholder="строчными, без точек, без смайлов, коротко">${esc(c.style || '')}</textarea></label>
             <label class="ivyph-check">
                 <input type="checkbox" data-f="blocked" ${c.blocked ? 'checked' : ''}>
-                <span>Blocked — their messages never arrive</span>
+                <span>Заблокирован — сообщения не приходят</span>
             </label>
-            <label>Color<input type="color" data-f="color" value="${esc(c.color || '#3d4a55')}"></label>
-            <label>Photo
+            <label>Цвет<input type="color" data-f="color" value="${esc(c.color || '#3d4a55')}"></label>
+            <label>Фото
                 <span class="ivyph-avatar-pick">
                     ${avatarHtml(c, 'ivyph-avatar ivyph-avatar-lg')}
-                    <button class="ivyph-mini" data-pick-photo>Choose…</button>
-                    ${c.avatar ? '<button class="ivyph-mini ivyph-mini-off" data-drop-photo>Remove</button>' : ''}
+                    <button class="ivyph-mini" data-pick-photo>Выбрать…</button>
+                    ${c.avatar ? '<button class="ivyph-mini ivyph-mini-off" data-drop-photo>Убрать</button>' : ''}
                 </span>
                 <input type="hidden" data-f="avatar" value="${esc(c.avatar || '')}">
             </label>
             ${isNew ? '' : `<div class="ivyph-quick">
-                <button class="ivyph-quick-btn" data-open-thread="${esc(c.key)}">${icon('message')}<span>Message</span></button>
-                <button class="ivyph-quick-btn" data-place-call="${esc(c.key)}">${icon('phone')}<span>Call</span></button>
+                <button class="ivyph-quick-btn" data-open-thread="${esc(c.key)}">${icon('message')}<span>Написать</span></button>
+                <button class="ivyph-quick-btn" data-place-call="${esc(c.key)}">${icon('phone')}<span>Позвонить</span></button>
             </div>`}
             <div class="ivyph-form-actions">
-                <button class="ivyph-primary" data-save-card>Save</button>
-                ${isNew ? '' : '<button class="ivyph-danger" data-del-card>Delete</button>'}
+                <button class="ivyph-primary" data-save-card>Сохранить</button>
+                ${isNew ? '' : '<button class="ivyph-danger" data-del-card>Удалить</button>'}
             </div>
         </div>`;
 }
@@ -3448,7 +3573,7 @@ function ingest(mesId) {
 
     save();
     render();
-    setTimeout(scrubAll, 0);
+    setTimeout(() => { scrubAll(); markMessage(mesId); }, 0);
 
     if (settings().autoPhotos) made.filter(e => e.type === 'photo').forEach(generatePhoto);
 
@@ -3548,6 +3673,7 @@ function buildSettingsPanel() {
                     </select>
                 </label>
                 <label class="checkbox_label"><input type="checkbox" data-s="scams"> Спам и мошенники</label>
+                <label class="checkbox_label"><input type="checkbox" data-s="chatBadge"> Показывать метку в чате, когда телефон что-то получил</label>
                 <label class="checkbox_label"><input type="checkbox" data-s="proseScan"> Подхватывать смс и звонки из текста ролевой</label>
                 <label class="checkbox_label"><input type="checkbox" data-s="proactive"> Контакты пишут сами</label>
                 <label>Шанс, что напишут (%)<input class="text_pole" type="number" data-s="proactiveChance"></label>
@@ -3611,7 +3737,7 @@ function buildSettingsPanel() {
             else if (f.type === 'number') s[key] = Number(f.value) || 0;
             else s[key] = f.value;
             saveSettingsDebounced();
-            if (key === 'hideMarkers') scrubAll();
+            if (key === 'hideMarkers' || key === 'chatBadge') scrubAll();
             if (key === 'skin') render();
             if (['autoInject', 'compact', 'injectDepth'].includes(key)) pushInjection();
         });

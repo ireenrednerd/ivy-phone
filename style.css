@@ -296,15 +296,20 @@
 
 .ivyph-dot {
     flex: none;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 9px;
-    background: var(--ph-brick);
+    min-width: 21px;
+    height: 21px;
+    padding: 0 6px;
+    border-radius: 11px;
+    background: #c0453a;
     color: #fff;
-    font: 600 11px/18px var(--ph-mono);
+    font: 700 12px/21px var(--ph-face);
     text-align: center;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
 }
+
+/* непрочитанная ветка выделяется и текстом, а не только кружком */
+.ivyph-row-unread .ivyph-row-top b { color: var(--ph-text); }
+.ivyph-row-unread .ivyph-row-sub { color: var(--ph-text); opacity: .85; font-weight: 500; }
 
 .ivyph-call-row.ivyph-missed .ivyph-row-top b,
 .ivyph-call-row.ivyph-missed .ivyph-row-sub { color: #c9695b; }
@@ -565,6 +570,17 @@
 }
 
 .ivyph-form input[type="color"] { padding: 2px; height: 34px; width: 60px; }
+
+/* Подсказка в пустом поле: приглушённая и курсивом, чтобы её нельзя было
+   спутать с реально введённым значением. */
+.ivyph-form input::placeholder,
+.ivyph-form textarea::placeholder,
+.ivyph-compose textarea::placeholder,
+.ivyph-edit-box::placeholder {
+    color: var(--ph-dim);
+    opacity: .55;
+    font-style: italic;
+}
 
 .ivyph-avatar-pick {
     display: flex;
@@ -1033,6 +1049,13 @@
 }
 
 [data-skin="iphone4"] .ivyph-form label { color: #5c636b; }
+
+[data-skin="iphone4"] .ivyph-form input::placeholder,
+[data-skin="iphone4"] .ivyph-form textarea::placeholder,
+[data-skin="iphone4"] .ivyph-compose textarea::placeholder {
+    color: #8a929b;
+    opacity: .75;
+}
 [data-skin="iphone4"] .ivyph-check { color: #1a1d21 !important; }
 [data-skin="iphone4"] .ivyph-shot { background: #e2e5e8; border-color: #b9bdc2; }
 [data-skin="iphone4"] .ivyph-shot-desc { color: #5c636b; }
@@ -1258,4 +1281,56 @@ body.ivyph-mounted .ivyph-launcher { display: none !important; }
 
 @media (prefers-reduced-motion: reduce) {
     .ivyph-typing i { animation: none; opacity: .6; }
+}
+
+/* ---------------------------------------------------------- chat mark */
+/* Плашка в ленте таверны: телефон что-то принял в этом сообщении.
+   Живёт вне корпуса, поэтому переменные задаём явно. */
+
+.ivyph-chatmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    margin: 10px 0 2px;
+    padding: 5px 11px 5px 9px;
+    border-radius: 999px;
+    border: 1px solid #3a444d;
+    background: rgba(30, 37, 43, .75);
+    color: #9fb0bd;
+    font: 600 11.5px/1 -apple-system, "Segoe UI", Roboto, sans-serif;
+    letter-spacing: .02em;
+    cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s;
+    vertical-align: middle;
+}
+
+.ivyph-chatmark:hover {
+    color: #e4e8eb;
+    border-color: #55636f;
+    background: rgba(38, 47, 54, .9);
+}
+
+.ivyph-chatmark > .ivyph-i {
+    width: 15px;
+    height: 15px;
+    opacity: .85;
+    vertical-align: 0;
+}
+
+.ivyph-chatmark span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ivyph-chatmark span .ivyph-i {
+    width: 13px;
+    height: 13px;
+    vertical-align: 0;
+    opacity: .7;
+}
+
+.ivyph-chatmark span + span {
+    padding-left: 9px;
+    border-left: 1px solid #3a444d;
 }
