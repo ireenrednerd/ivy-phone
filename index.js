@@ -1921,57 +1921,7 @@ async function removeCarrier(token) {
     } catch { /* не критично */ }
 }
 
-async function generatePhoto(ev) {
-    if (!ev || ev.state === 'pending') return;
-    const s = settings();
-    const c = contact(ev.from);
-    const cleanPrompt = stripPanels(ev.prompt).split('\n')[0].trim();
-    // Имя обязано быть в промпте: по нему срабатывает режим «Send on match»
-    // в sillyimages и подставляется референс внешности. Без имени модель
-    // рисует случайное лицо.
-    // Референс подтягивается только если имя встретилось в промпте, причём
-    // расширения генерации требуют его с заглавной буквы. Приводим к такому виду.
-    const capitalize = s => String(s || '')
-        .split(/\s+/)
-        .map(w => w ? w[0].toUpperCase() + w.slice(1) : w)
-        .join(' ')
-        .trim();
-
-    // Имя в промпте заставляет расширение генерации прикрепить портретный
-    // референс, а картинка-образец всегда перевешивает текст. Поэтому для
-    // снимков предметов и мест имя и внешность НЕ упоминаем — иначе вместо
-    // ужина рисуется лицо владельца телефона.
-    const facePhoto = !ev.shot || ev.shot === 'selfie' || ev.shot === 'mirror';
-
-    const who = (ev.dir === 'in' && facePhoto) ? capitalize(c?.name || ev.from) : '';
-    const look = facePhoto ? [c?.anchor, c?.clothes] : [];
-
-    // Для subject/object рука в кадре допустима — так написано и в SHOT_KINDS.
-    // Раньше здесь стояло «nobody visible», и это спорило с самим типом кадра.
-    // Если в кадре может оказаться рука — она должна быть рукой этого героя.
-    const hands = bodyHint(`${c?.anchor || ''} ${c?.lore || ''}`);
-    const noFace = facePhoto ? ''
-        : (ev.shot === 'subject' || ev.shot === 'object')
-            ? [`no face, no portrait, at most a hand in frame`,
-                hands ? `if a hand or arm is visible it belongs to a person with ${hands}` : ''
-              ].filter(Boolean).join(', ')
-            : 'no people in frame, nobody visible, no face, no portrait';
-
-    // Описатель мог сам вписать имя («Zo's plate of tacos»). Генератор цепляет
-    // портретный референс по совпадению имени, а референс всегда перевешивает
-    // текст — поэтому в непортретном кадре имя вычищаем.
-    let body = cleanPrompt;
-    const nm = String(c?.name || ev.from || '').trim();
-    if (!facePhoto && nm) {
-        const esc = nm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        body = body
-            .replace(new RegExp(`\\b${esc}(?:'s|’s)?\\b`, 'gi'), 'the person')
-            .replace(/\bthe person's\b/gi, 'their')
-            .trim();
-    }
-
-    // Из описания внешности вытаскиваем только то, что видно на НЕпортретном
-// кадре: тон кожи, телосложение, руки, татуировки, лак, кольца. Генераторы
+// Из описания внешности вытаскиваем только то, что видно на НЕпортретном
 // по умолчанию рисуют бледную европейскую руку, если не сказать иначе.
 // Из описания внешности вытаскиваем только то, что видно на НЕпортретном
 // кадре: тон кожи, телосложение, приметы рук. Генераторы по умолчанию рисуют
@@ -2024,7 +1974,56 @@ function bodyHint(text) {
         .filter(Boolean).join(', ');
 }
 
-// Второй рубеж: описатель мог всё равно проговорить внешность (карточка
+async function generatePhoto(ev) {
+    if (!ev || ev.state === 'pending') return;
+    const s = settings();
+    const c = contact(ev.from);
+    const cleanPrompt = stripPanels(ev.prompt).split('\n')[0].trim();
+    // Имя обязано быть в промпте: по нему срабатывает режим «Send on match»
+    // в sillyimages и подставляется референс внешности. Без имени модель
+    // рисует случайное лицо.
+    // Референс подтягивается только если имя встретилось в промпте, причём
+    // расширения генерации требуют его с заглавной буквы. Приводим к такому виду.
+    const capitalize = s => String(s || '')
+        .split(/\s+/)
+        .map(w => w ? w[0].toUpperCase() + w.slice(1) : w)
+        .join(' ')
+        .trim();
+
+    // Имя в промпте заставляет расширение генерации прикрепить портретный
+    // референс, а картинка-образец всегда перевешивает текст. Поэтому для
+    // снимков предметов и мест имя и внешность НЕ упоминаем — иначе вместо
+    // ужина рисуется лицо владельца телефона.
+    const facePhoto = !ev.shot || ev.shot === 'selfie' || ev.shot === 'mirror';
+
+    const who = (ev.dir === 'in' && facePhoto) ? capitalize(c?.name || ev.from) : '';
+    const look = facePhoto ? [c?.anchor, c?.clothes] : [];
+
+    // Для subject/object рука в кадре допустима — так написано и в SHOT_KINDS.
+    // Раньше здесь стояло «nobody visible», и это спорило с самим типом кадра.
+    // Если в кадре может оказаться рука — она должна быть рукой этого героя.
+    const hands = bodyHint(`${c?.anchor || ''} ${c?.lore || ''}`);
+    const noFace = facePhoto ? ''
+        : (ev.shot === 'subject' || ev.shot === 'object')
+            ? [`no face, no portrait, at most a hand in frame`,
+                hands ? `if a hand or arm is visible it belongs to a person with ${hands}` : ''
+              ].filter(Boolean).join(', ')
+            : 'no people in frame, nobody visible, no face, no portrait';
+
+    // Описатель мог сам вписать имя («Zo's plate of tacos»). Генератор цепляет
+    // портретный референс по совпадению имени, а референс всегда перевешивает
+    // текст — поэтому в непортретном кадре имя вычищаем.
+    let body = cleanPrompt;
+    const nm = String(c?.name || ev.from || '').trim();
+    if (!facePhoto && nm) {
+        const esc = nm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        body = body
+            .replace(new RegExp(`\\b${esc}(?:'s|’s)?\\b`, 'gi'), 'the person')
+            .replace(/\bthe person's\b/gi, 'their')
+            .trim();
+    }
+
+    // Второй рубеж: описатель мог всё равно проговорить внешность (карточка
     // персонажа обычно начинается с портрета, и это тянет модель за собой).
     // Инструкции — первый рубеж, это — сеть под ним, на случай если модель
     // их не услышала.
