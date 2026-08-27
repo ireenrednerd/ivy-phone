@@ -2338,7 +2338,15 @@ function sanitizeReply(raw) {
     return t;
 }
 
-async function askModel(prompt) {
+// raw=true — ответ не пропускается через sanitizeReply. Нужен там, где мы
+// ждём ОПИСАНИЕ КАДРА: пресет часто отвечает готовым тегом <img>, санитайзер
+// его вырезает целиком, остаётся пустая строка — и запрос молча пропадал.
+// Для смс raw не годится: там тег в пузыре не нужен.
+async function askModelRaw(prompt) {
+    return askModel(prompt, true);
+}
+
+async function askModel(prompt, raw = false) {
     const s = settings();
     let previous = '';
     try {
@@ -2365,12 +2373,13 @@ async function askModel(prompt) {
             } catch {
                 out = await ctx.generateQuietPrompt(prompt, false, true);
             }
-            const clean = sanitizeReply(out);
-            if (!clean) logDebug(`модель вернула пусто или один служебный тег: ${String(out).slice(0, 120) || '—'}`);
+            const clean = raw ? stripPanels(String(out || '')).trim() : sanitizeReply(out);
+            if (!clean) logDebug(`модель вернула пусто: ${String(out).slice(0, 160) || '—'}`);
             return clean;
         }
         const flat = prompt.replace(/\|/g, '\\|').replace(/\n/g, ' ');
-        return sanitizeReply(String((await runSlash(`/genraw ${flat}`))?.pipe || ''));
+        const piped = String((await runSlash(`/genraw ${flat}`))?.pipe || '');
+        return raw ? stripPanels(piped).trim() : sanitizeReply(piped);
     } catch (err) {
         logDebug(`ошибка запроса: ${err?.message || err}`);
         return '';
@@ -3668,6 +3677,17 @@ function wire() {
 
     s.querySelectorAll('[data-igopen]').forEach(n => n.addEventListener('click', () => go('ig')));
 
+    s.querySelectorAll('[data-igstat]').forEach(n => n.addEventListener('click', () => {
+        const key = n.dataset.igkey;
+        const field = n.dataset.igstat;
+        const cur = igStats(key)[field];
+        const next = prompt(field === 'followers' ? 'Сколько подписчиков?' : 'Сколько подписок?', String(cur));
+        if (next === null) return;
+        const num = Number(String(next).replace(/[^\d]/g, ''));
+        if (!Number.isFinite(num)) return;
+        igSetStat(key, field, num);
+    }));
+
     const conjure = s.querySelector('[data-igconjure]');
     if (conjure) conjure.addEventListener('click', () => {
         if (!live.igBusy) igConjureFeed();
@@ -3984,7 +4004,7 @@ async function deliverPhoto(c, request, sentEvent) {
 
         const asked = askedSubject(request);
 
-        const описание = await askModel([
+        const описание = await askModelRaw([
             cardContext(true),
             await lorebookContext(`${scene} ${c.name}`),
             `Scene right now:\n${scene}`,
@@ -4047,7 +4067,7 @@ async function askForPhoto(k) {
     const shot = pickShot('', settings().selfieBias);
     logDebug(`кадр (кнопка камеры): ${shot}`);
 
-    const описание = await askModel([
+    const описание = await askModelRaw([
         cardContext(true),
         await lorebookContext(`${scene} ${c.name}`),
         `Current scene:\n${scene}`,
@@ -4272,6 +4292,7 @@ function ig() {
     if (typeof g.followers !== 'number') g.followers = 118;
     if (typeof g.seq !== 'number') g.seq = 1;
     if (!Array.isArray(g.notes)) g.notes = []; // лента уведомлений
+    if (!g.stats) g.stats = {};              // ручные счётчики по персонажам
     return g;
 }
 
@@ -4309,6 +4330,38 @@ function igNick(c) {
     const h = String(c.handle || '').replace(/^@+/, '').trim();
     if (h) return h;
     return igSlug(c.name) || igSlug(c.label) || 'someone';
+}
+
+// Числа профиля. Ручное значение всегда важнее расчётного: если по сюжету
+// у героя пять подписчиков, так и должно остаться. Для контактов расчёт идёт
+// от имени, а не через Math.random(), иначе цифры прыгали при перерисовке.
+function igStats(key) {
+    const g = ig();
+    const saved = g.stats[key] || {};
+    const seed = [...String(key)].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+
+    const followers = Number.isFinite(saved.followers)
+        ? saved.followers
+        : (key === 'me' ? g.followers : 180 + (seed * 137) % 3200);
+
+    const following = Number.isFinite(saved.following)
+        ? saved.following
+        : (key === 'me' ? igFollowing().length : 60 + (seed * 41) % 400);
+
+    return { followers, following };
+}
+
+function igSetStat(key, field, value) {
+    const g = ig();
+    const n = Math.max(0, Math.round(Number(value)));
+    if (!Number.isFinite(n)) return;
+    if (!g.stats[key]) g.stats[key] = {};
+    g.stats[key][field] = n;
+    // Свои подписчики живут ещё и в g.followers — движок лайков крутит именно
+    // это поле, поэтому синхронизируем, иначе правка откатится после поста.
+    if (key === 'me' && field === 'followers') g.followers = n;
+    save();
+    render();
 }
 
 function igFollowing() {
@@ -4421,8 +4474,7 @@ async function igGenerate(post) {
 // к модели: это дёшево, мгновенно и не жжёт токены на «so cute!!».
 
 function igReach() {
-    const g = ig();
-    return Math.max(12, g.followers);
+    return Math.max(12, igStats('me').followers);
 }
 
 function igWave(postId, wave) {
@@ -4460,7 +4512,9 @@ function igWave(postId, wave) {
         const delta = Math.random() < 0.72
             ? Math.round(1 + Math.random() * Math.max(2, reach * 0.03))
             : -Math.round(1 + Math.random() * 2);
-        g.followers = Math.max(0, g.followers + delta);
+        const now = Math.max(0, igStats('me').followers + delta);
+        g.followers = now;
+        if (g.stats.me) g.stats.me.followers = now;
         if (delta > 0) igNote(`${igStranger()} and ${delta - 1 > 0 ? `${delta - 1} others` : 'others'} started following you`);
         else igNote(`${Math.abs(delta)} people unfollowed you`);
     }
@@ -4556,7 +4610,7 @@ async function igComposePost(key) {
     if (!c || c.blocked) return false;
 
     const scene = sceneContext(5);
-    const out = await askModel([
+    const out = await askModelRaw([
         cardContext(true),
         await lorebookContext(`${scene} ${c.name}`),
         `Current scene:\n${scene}`,
@@ -4571,9 +4625,27 @@ async function igComposePost(key) {
     ].filter(Boolean).join('\n\n'));
 
     const body = stripPanels(String(out || ''));
-    const photo = (body.match(/PHOTO:\s*(.+)/i) || [])[1]?.trim() || '';
-    const caption = (body.match(/CAPTION:\s*(.+)/i) || [])[1]?.trim() || '';
-    if (!photo) { logDebug(`${c.name}: пустой пост, пропущен`); return false; }
+
+    let photo = (body.match(/PHOTO:\s*(.+)/i) || [])[1]?.trim() || '';
+    let caption = (body.match(/CAPTION:\s*(.+)/i) || [])[1]?.trim() || '';
+
+    // Модель далеко не всегда ставит метки PHOTO/CAPTION. Раньше в этом случае
+    // пост молча пропадал — палочка крутилась и не давала ничего. Разбираем
+    // запасным путём: тег с prompt, иначе первые строки ответа.
+    if (!photo) {
+        const unwrapped = unwrapPromptTag(body).trim();
+        const lines = (unwrapped || body)
+            .split('\n')
+            .map(l => l.replace(/^[-*>\s]+/, '').replace(/^(photo|caption|image|prompt)\s*[:—-]\s*/i, '').trim())
+            .filter(Boolean);
+        photo = lines[0] || '';
+        if (!caption) caption = lines[1] || '';
+    }
+
+    if (!photo) {
+        logDebug(`${c.name}: пост не разобран. Ответ: ${body.slice(0, 160) || '—'}`);
+        return false;
+    }
 
     const post = igAddPost({
         author: key,
@@ -4913,11 +4985,7 @@ function renderIgProfile(key) {
     if (!mine && !c) return renderIgExplore();
 
     const posts = g.posts.filter(p => p.author === key);
-    // У контактов числа должны быть стабильными между перерисовками,
-    // поэтому берём их из имени, а не из Math.random().
-    const seed = [...String(key)].reduce((a, ch) => a + ch.charCodeAt(0), 0);
-    const followers = mine ? g.followers : 180 + (seed * 137) % 3200;
-    const following = mine ? igFollowing().length : 60 + (seed * 41) % 400;
+    const st = igStats(key);
 
     return `${igBar(igWho(key).toUpperCase(), mine ? 'ig' : 'igexplore')}
     <div class="ivyph-ig-body">
@@ -4926,8 +4994,12 @@ function renderIgProfile(key) {
                 ${igAvatar(key, 'ivyph-ig-ava-big')}
                 <div class="ivyph-ig-stats">
                     <div><b>${posts.length}</b><span>photos</span></div>
-                    <div><b>${followers}</b><span>followers</span></div>
-                    <div><b>${following}</b><span>following</span></div>
+                    <button data-igstat="followers" data-igkey="${esc(key)}">
+                        <b>${st.followers}</b><span>followers</span>
+                    </button>
+                    <button data-igstat="following" data-igkey="${esc(key)}">
+                        <b>${st.following}</b><span>following</span>
+                    </button>
                 </div>
             </div>
 

@@ -1945,3 +1945,16 @@ body.ivyph-mounted .ivyph-launcher { display: none !important; }
 .ivyph-ig-tag { color: #1b4a76; font-weight: 600; }
 
 .ivyph-ig-igava-note { font-size: 10.5px; color: #8b8f94; }
+
+/* Счётчики профиля кликабельны — по нажатию число можно задать вручную. */
+.ivyph-ig-stats button {
+    background: none;
+    border: 0;
+    padding: 0 4px;
+    cursor: pointer;
+    font: inherit;
+    text-align: center;
+}
+
+.ivyph-ig-stats button b { color: #1b4a76; }
+.ivyph-ig-stats button:active b { opacity: .6; }
