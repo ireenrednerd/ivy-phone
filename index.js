@@ -1472,7 +1472,10 @@ const DEFAULTS = {
     autoPhotos: false,
     imageMode: 'tag',
     imageCommand: '/sd quiet=true {{prompt}}',
-    imageTag: `<img data-iig-instruction='{"prompt":"{{prompt}}","aspect_ratio":"3:4"}' src="[IMG:GEN]">`,
+    // style задаём здесь: профили камер тянут кадр в сторону дешёвого
+    // телефонного снимка, поэтому в style не должно быть ни плёнки, ни боке,
+    // ни «cinematic» — иначе поля спорят друг с другом.
+    imageTag: `<img data-iig-instruction='{"style":"photorealistic, real photograph, natural skin texture, ordinary available light, no illustration, no anime, no painting, no 3d render","prompt":"{{prompt}}","aspect_ratio":"3:4","image_size":"1K"}' src="[IMG:GEN]">`,
     timeMacro: '{{getvar::clock}}',
     dateMacro: '{{getvar::date}}',
     profile: '',
@@ -1497,11 +1500,20 @@ const DEFAULTS = {
 
 // ---------------------------------------------------------------- settings
 
+// Теги прошлых версий: если пользователь их не правил руками, молча обновляем
+// на текущий дефолт, иначе старый тег без style живёт вечно.
+const LEGACY_TAGS = [
+    `<img data-iig-instruction='{"prompt":"{{prompt}}","aspect_ratio":"3:4"}' src="[IMG:GEN]">`,
+    `<img data-iig-instruction='{"prompt":"{{prompt}}","aspect_ratio":"3:4","image_size":"1K"}' src="[IMG:GEN]">`,
+];
+
 function settings() {
     if (!extension_settings[MODULE]) extension_settings[MODULE] = {};
     for (const [k, v] of Object.entries(DEFAULTS)) {
         if (extension_settings[MODULE][k] === undefined) extension_settings[MODULE][k] = v;
     }
+    const cur = String(extension_settings[MODULE].imageTag || '').trim();
+    if (LEGACY_TAGS.includes(cur)) extension_settings[MODULE].imageTag = DEFAULTS.imageTag;
     return extension_settings[MODULE];
 }
 
@@ -1859,9 +1871,13 @@ async function generateViaTag(ev, prompt) {
         const at = live.findIndex(m => m?.extra?.ivyph_carrier === token);
         if (at < 0) break;
         const body = String(live[at]?.mes || '');
-        const src = body.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1];
+        // Берём первый src, который реально похож на путь: тег-заготовка может
+        // нести src="" или src="[IMG:GEN]", и брать «первый попавшийся» нельзя.
+        const src = [...body.matchAll(/<img[^>]+src=["']([^"']*)["']/gi)]
+            .map(m => m[1])
+            .find(v => v && !/IMG:GEN/i.test(v) && !/error\.svg/i.test(v));
 
-        if (src && !/IMG:GEN/i.test(src) && !/error\.svg/i.test(src)) {
+        if (src) {
             ev.image = src;
             ev.state = 'done';
             await removeCarrier(token);
@@ -1874,6 +1890,7 @@ async function generateViaTag(ev, prompt) {
         }
     }
 
+    logDebug('картинка не пришла за 3 минуты — расширение генерации не подхватило тег (проверь формат «Тег для картинки»)');
     await removeCarrier(token);
     return false;
 }
@@ -2043,6 +2060,20 @@ function askedSubject(request) {
         // а это не предмет съёмки
         .replace(/^(?:please|plz|пожалуйста|плиз|срочно)(?=\s|$)\s*/i, '')
         .trim();
+}
+
+// Пресет мог ответить не описанием кадра, а готовой директивой генерации.
+// Вытаскиваем из неё поле prompt, иначе кадр молча терялся.
+function unwrapPromptTag(text) {
+    const t = String(text || '');
+    const inner = t.match(/"prompt"\s*:\s*"([^"]{4,})"/i);
+    if (inner) return inner[1].trim();
+    if (/<img\b/i.test(t)) {
+        const alt = t.match(/\balt\s*=\s*["']([^"']{4,})["']/i);
+        if (alt) return alt[1].trim();
+        return '';
+    }
+    return t;
 }
 
 // Просьба может прямо называть предмет — тогда снимаем его, а не лицо.
@@ -2253,6 +2284,17 @@ async function buildReplyPrompt(c, outgoing) {
 function sanitizeReply(raw) {
     let t = stripPanels(String(raw || ''));
 
+    // Квайет-запрос идёт через основной пресет, а он может сам вклеить директиву
+    // генерации картинки (<img data-iig-instruction=...>). В смс это попадать
+    // не должно — иначе в пузыре оказывается сырой тег с описанием Alice.
+    t = t
+        .replace(/<img\b[^>]*>/gi, ' ')
+        .replace(/<\/?[a-z][^>]*>/gi, ' ')
+        .replace(/\{\s*"(?:style|prompt|aspect_ratio|image_size)"[\s\S]*?\}/gi, ' ')
+        .replace(/\[IMG:GEN\]/gi, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
     // выкидываем строки-панели и служебные пометки
     t = t.split('\n')
         .filter(l => !/^\s*(\[|⟦|#|\*\*|HEADER|CROSSROADS|COMMENTS|PSYCHE|BODY|STATE|VARS|GOAL|PLAN)/i.test(l))
@@ -2301,7 +2343,9 @@ async function askModel(prompt) {
             } catch {
                 out = await ctx.generateQuietPrompt(prompt, false, true);
             }
-            return sanitizeReply(out);
+            const clean = sanitizeReply(out);
+            if (!clean) logDebug(`модель вернула пусто или один служебный тег: ${String(out).slice(0, 120) || '—'}`);
+            return clean;
         }
         const flat = prompt.replace(/\|/g, '\\|').replace(/\n/g, ' ');
         return sanitizeReply(String((await runSlash(`/genraw ${flat}`))?.pipe || ''));
@@ -3761,15 +3805,17 @@ async function deliverPhoto(c, request, sentEvent) {
             `Under 25 words. No camera settings, no lighting jargon, no quality words,`,
             `no names, no quotes, no explanation. Just what is in the picture.`,
             `Do NOT include any HEADER, CROSSROADS, COMMENTS or other UI panel.`,
+            `Do NOT output HTML, an <img> tag, or any image-generation directive — plain text only.`,
         ].filter(Boolean).join('\n\n'));
 
         live.typing = '';
 
         // Здесь была главная поломка: в промпт уходило stripPanels(shot), то есть
         // буквально слово «selfie», а ответ модели выбрасывался.
-        const prompt = stripPanels(описание).replace(/^["']|["']$/g, '').split('\n')[0].trim();
+        const prompt = unwrapPromptTag(stripPanels(описание))
+            .replace(/^["']|["']$/g, '').split('\n')[0].trim();
         if (!prompt || /HEADER|CROSSROADS|COMMENTS/i.test(prompt)) {
-            logDebug('модель не описала кадр');
+            logDebug(`модель не описала кадр (пусто или панель). Ответ: ${String(описание).slice(0, 120) || '—'}`);
             render();
             return;
         }
@@ -3820,13 +3866,15 @@ async function askForPhoto(k) {
         `Do not describe how anyone looks — appearance is attached separately.`,
         `One line, under 200 characters, no quotes, no explanation.`,
         `Do NOT include any HEADER, CROSSROADS, COMMENTS or other UI panel. Just the plain image description.`,
+        `Do NOT output HTML, an <img> tag, or any image-generation directive — plain text only.`,
     ].filter(Boolean).join('\n\n'));
 
     live.typing = '';
 
-    let prompt = stripPanels(описание).replace(/^["']|["']$/g, '').split('\n')[0].trim();
+    let prompt = unwrapPromptTag(stripPanels(описание))
+        .replace(/^["']|["']$/g, '').split('\n')[0].trim();
     if (!prompt || /HEADER|CROSSROADS|COMMENTS/i.test(prompt)) {
-        logDebug('модель вернула панель вместо кадра');
+        logDebug(`модель вернула панель вместо кадра. Ответ: ${String(описание).slice(0, 120) || '—'}`);
         render();
         return;
     }
@@ -4035,6 +4083,10 @@ function ingest(mesId) {
     const ctx = getContext();
     const msg = ctx.chat?.[mesId];
     if (!msg || msg.is_user) return;
+    // Носитель тега — наше служебное сообщение. generateViaTag сам шлёт по нему
+    // MESSAGE_RECEIVED, и без этой проверки расширение разбирает собственный тег
+    // как реплику персонажа. В ingestUser такая проверка была, здесь — нет.
+    if (msg.extra?.ivyph_carrier) return;
 
     purgeMessage(mesId);
     const made = parseBlocks(msg.mes, mesId);
