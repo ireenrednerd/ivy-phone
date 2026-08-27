@@ -3224,7 +3224,7 @@ function renderNewGroup() {
 
 function renderCard(k) {
     const isNew = k === '__new__';
-    const blank = { name: '', label: '', lore: '', number: '', handle: '', anchor: '', clothes: '', place: '', style: '', color: '#3d4a55', avatar: '', blocked: false };
+    const blank = { name: '', label: '', lore: '', number: '', handle: '', anchor: '', clothes: '', place: '', style: '', color: '#3d4a55', avatar: '', igAvatar: '', blocked: false };
     // читаем напрямую из хранилища: contact() создал бы пустой контакт
     const c = isNew ? blank : (store().contacts[resolveKey(k)] || blank);
     return `<div class="ivyph-head ivyph-head-nav">
@@ -3253,6 +3253,18 @@ function renderCard(k) {
                     ${c.avatar ? '<button class="ivyph-mini ivyph-mini-off" data-drop-photo>Убрать</button>' : ''}
                 </span>
                 <input type="hidden" data-f="avatar" value="${esc(c.avatar || '')}">
+            </label>
+            <label>Аватарка для Инстаграма — если пусто, берётся обычная
+                <span class="ivyph-avatar-pick">
+                    <span class="ivyph-avatar ivyph-avatar-lg ivyph-igava-box" style="--tint:${esc(c.color || '#3d4a55')}">
+                        ${c.igAvatar
+                            ? `<img src="${esc(c.igAvatar)}" alt="" onerror="this.remove()">`
+                            : esc(String(shownName(c) || '?')[0].toUpperCase())}
+                    </span>
+                    <button class="ivyph-mini" data-pick-igphoto>Выбрать…</button>
+                    ${c.igAvatar ? '<button class="ivyph-mini ivyph-mini-off" data-drop-igphoto>Убрать</button>' : ''}
+                </span>
+                <input type="hidden" data-f="igAvatar" value="${esc(c.igAvatar || '')}">
             </label>
             ${isNew ? '' : `<div class="ivyph-quick">
                 <button class="ivyph-quick-btn" data-open-thread="${esc(c.key)}">${icon('message')}<span>Написать</span></button>
@@ -3656,6 +3668,47 @@ function wire() {
 
     s.querySelectorAll('[data-igopen]').forEach(n => n.addEventListener('click', () => go('ig')));
 
+    const conjure = s.querySelector('[data-igconjure]');
+    if (conjure) conjure.addEventListener('click', () => {
+        if (!live.igBusy) igConjureFeed();
+    });
+
+    // Подпись к своему посту можно дописать и после публикации.
+    s.querySelectorAll('[data-igcap]').forEach(n => n.addEventListener('click', () => {
+        const p = igPost(n.dataset.igcap);
+        if (!p) return;
+        const next = prompt('Подпись к фото — можно с #тегами', p.caption || '');
+        if (next === null) return;
+        p.caption = next.slice(0, 200);
+        save();
+        render();
+        pushInjection();
+    }));
+
+    const igAva = s.querySelector('[data-igava]');
+    if (igAva) igAva.addEventListener('click', () => {
+        const file = document.createElement('input');
+        file.type = 'file';
+        file.accept = 'image/*';
+        file.addEventListener('change', async () => {
+            const f = file.files?.[0];
+            if (!f) return;
+            try {
+                ig().avatar = await shrinkImage(f, 200);
+                save();
+                render();
+            } catch (err) { logDebug(`аватарка не загрузилась: ${err?.message || err}`); }
+        });
+        file.click();
+    });
+
+    const igAvaDrop = s.querySelector('[data-igavadrop]');
+    if (igAvaDrop) igAvaDrop.addEventListener('click', () => {
+        ig().avatar = '';
+        save();
+        render();
+    });
+
     // Комментарий: и по кнопке, и по Enter — на телефоне удобнее второе.
     const sendComment = id => {
         const field = s.querySelector(`[data-igcomment="${id}"]`);
@@ -3736,6 +3789,31 @@ function wire() {
             } catch (err) { logDebug(`фото не загрузилось: ${err?.message || err}`); }
         });
         file.click();
+    });
+
+    const pickIg = s.querySelector('[data-pick-igphoto]');
+    if (pickIg) pickIg.addEventListener('click', () => {
+        const file = document.createElement('input');
+        file.type = 'file';
+        file.accept = 'image/*';
+        file.addEventListener('change', async () => {
+            const f = file.files?.[0];
+            if (!f) return;
+            try {
+                const url = await shrinkImage(f);
+                s.querySelector('[data-f="igAvatar"]').value = url;
+                const box = s.querySelector('.ivyph-igava-box');
+                if (box) box.innerHTML = `<img src="${url}" alt="">`;
+            } catch (err) { logDebug(`аватарка для инстаграма не загрузилась: ${err?.message || err}`); }
+        });
+        file.click();
+    });
+
+    const dropIg = s.querySelector('[data-drop-igphoto]');
+    if (dropIg) dropIg.addEventListener('click', () => {
+        s.querySelector('[data-f="igAvatar"]').value = '';
+        const box = s.querySelector('.ivyph-igava-box');
+        if (box) box.textContent = (s.querySelector('[data-f="name"]').value || '?')[0].toUpperCase();
     });
 
     const drop = s.querySelector('[data-drop-photo]');
@@ -4188,6 +4266,7 @@ function ig() {
     const g = s.insta;
     if (!g.handle) g.handle = '';
     if (!g.bio) g.bio = '';
+    if (!g.avatar) g.avatar = '';
     if (!Array.isArray(g.posts)) g.posts = [];
     if (!g.follows) g.follows = {};          // ключ контакта -> true
     if (typeof g.followers !== 'number') g.followers = 118;
@@ -4375,8 +4454,9 @@ function igWave(postId, wave) {
     }
 
     // Подписки и отписки: хорошая публикация приводит людей, слабая — уносит.
+    // Считаем только по своим постам — чужие на твоих подписчиков не влияют.
     const g = ig();
-    if (wave === 0) {
+    if (wave === 0 && post.author === 'me') {
         const delta = Math.random() < 0.72
             ? Math.round(1 + Math.random() * Math.max(2, reach * 0.03))
             : -Math.round(1 + Math.random() * 2);
@@ -4470,13 +4550,8 @@ async function igPublishOwn(caption, promptText, file) {
     igContactComment(post);
 }
 
-// Контакт публикует сам. Дёргается редко, из фоновой работы за ход.
-async function igMaybeContactPost() {
-    const following = igFollowing();
-    if (!following.length) return false;
-    if (Math.random() * 100 > (Number(settings().igPostChance) || 10)) return false;
-
-    const key = igPick(following);
+// Один пост одного контакта: текст сочиняет модель, картинка не трогается.
+async function igComposePost(key) {
     const c = contact(key);
     if (!c || c.blocked) return false;
 
@@ -4519,10 +4594,48 @@ async function igMaybeContactPost() {
     igNote(`${igNick(c)} posted a photo`);
     save();
     render();
-    pushInjection();
 
-    if (settings().autoPhotos) await igGenerate(post);
+    // Картинку намеренно НЕ генерируем: пост приходит с описанием под блюром,
+    // и деньги тратятся только на те кадры, которые ты выберешь сама.
+    igEngage(post);
     return true;
+}
+
+// Контакт публикует сам. Дёргается редко, из фоновой работы за ход.
+async function igMaybeContactPost() {
+    const following = igFollowing();
+    if (!following.length) return false;
+    if (Math.random() * 100 > (Number(settings().igPostChance) || 10)) return false;
+
+    const made = await igComposePost(igPick(following));
+    if (made) pushInjection();
+    return made;
+}
+
+// Волшебная палочка: разово наполнить ленту. Публикуют один-два контакта,
+// а не все разом — иначе лента выглядит как рассылка.
+async function igConjureFeed() {
+    const following = igFollowing().filter(k => !contact(k)?.blocked);
+    if (!following.length) {
+        logDebug('в Инстаграме нет подписок — некому публиковать');
+        return;
+    }
+
+    const pool = [...following].sort(() => Math.random() - 0.5);
+    const many = Math.min(pool.length, Math.random() < 0.55 ? 1 : 2);
+
+    live.igBusy = true;
+    render();
+    try {
+        for (const key of pool.slice(0, many)) {
+            await igComposePost(key);
+        }
+    } finally {
+        live.igBusy = false;
+        save();
+        render();
+        pushInjection();
+    }
 }
 
 // Лайк и комментарий от владельца телефона.
@@ -4614,16 +4727,20 @@ function igLog(limit = 6) {
 // тёмная панель вкладок снизу с приподнятой камерой в центре, белые карточки
 // постов и сетка квадратов в профиле.
 
+// Аватарка в приложении своя: сначала загруженная для Инстаграма, и только
+// если её нет — обычная из контакта. Так профиль в ленте можно поменять,
+// не трогая фото в переписке.
 function igAvatar(key, cls = '') {
     if (key === 'me') {
         const ctx = getContext();
-        const url = personaAvatarUrl(ctx?.userAvatar || ctx?.user_avatar || '');
+        const url = ig().avatar || personaAvatarUrl(ctx?.userAvatar || ctx?.user_avatar || '');
         return url
             ? `<img class="ivyph-ig-ava ${cls}" src="${esc(url)}" alt="">`
             : `<span class="ivyph-ig-ava ivyph-ig-ava-blank ${cls}">${icon('user')}</span>`;
     }
     const c = contact(key);
-    if (c?.avatar) return `<img class="ivyph-ig-ava ${cls}" src="${esc(c.avatar)}" alt="">`;
+    const pic = c?.igAvatar || c?.avatar;
+    if (pic) return `<img class="ivyph-ig-ava ${cls}" src="${esc(pic)}" alt="">`;
     return `<span class="ivyph-ig-ava ivyph-ig-ava-blank ${cls}" style="background:${esc(c?.color || '#3d4a55')}">`
         + `${esc(String(c?.name || '?').slice(0, 1).toUpperCase())}</span>`;
 }
@@ -4657,6 +4774,12 @@ function igTabs(active) {
     </div>`;
 }
 
+// #теги и @упоминания подсвечиваем синим, как в приложении. Экранируем
+// СНАЧАЛА, потом оборачиваем — иначе разметка из подписи попадёт в вёрстку.
+function igTags(text) {
+    return esc(text).replace(/([#@][\wА-Яа-яЁё_.]+)/g, '<b class="ivyph-ig-tag">$1</b>');
+}
+
 function igStamp(ts) {
     const mins = Math.round((Date.now() - ts) / 60000);
     if (mins < 1) return 'just now';
@@ -4671,9 +4794,14 @@ function igMedia(p) {
     if (p.state === 'pending') {
         return `<div class="ivyph-ig-blank">${icon('spinner', 'ivyph-spin')}<span>loading…</span></div>`;
     }
-    return `<div class="ivyph-ig-blank">
-        <span>${esc(p.prompt ? p.prompt.slice(0, 90) : 'нет фото')}</span>
-        ${p.prompt ? `<button class="ivyph-ig-btn" data-iggen="${esc(p.id)}">Сгенерировать</button>` : ''}
+    // Несгенерированный кадр: размытая подложка и описание. Кнопка тратит
+    // деньги только тогда, когда снимок действительно нужен.
+    return `<div class="ivyph-ig-blur">
+        <div class="ivyph-ig-blurbg"></div>
+        <div class="ivyph-ig-blurin">
+            <span class="ivyph-ig-blurtext">${esc(p.prompt ? p.prompt.slice(0, 160) : 'нет описания кадра')}</span>
+            ${p.prompt ? `<button class="ivyph-ig-btn" data-iggen="${esc(p.id)}">Сгенерировать фото</button>` : ''}
+        </div>
     </div>`;
 }
 
@@ -4686,7 +4814,7 @@ function igComments(p) {
         ${more > 0 ? `<button class="ivyph-ig-more" data-igmore="${esc(p.id)}">View all ${p.comments.length} comments</button>` : ''}
         ${shown.map(x => `<div class="ivyph-ig-comment">
             <button class="ivyph-ig-uname" ${x.contact ? `data-igprofile="${esc(x.contact)}"` : ''}>${esc(x.handle)}</button>
-            ${esc(x.text)}
+            ${igTags(x.text)}
         </div>`).join('')}
     </div>`;
 }
@@ -4712,8 +4840,11 @@ function igCard(p) {
 
         ${p.caption ? `<div class="ivyph-ig-caption">
             <button class="ivyph-ig-uname" data-igprofile="${esc(p.author)}">${esc(igWho(p.author))}</button>
-            ${esc(p.caption)}
+            ${igTags(p.caption)}
         </div>` : ''}
+        ${p.author === 'me' ? `<button class="ivyph-ig-more" data-igcap="${esc(p.id)}">
+            ${p.caption ? 'Изменить подпись' : 'Добавить подпись'}
+        </button>` : ''}
         ${igComments(p)}
 
         <div class="ivyph-ig-addc">
@@ -4727,7 +4858,11 @@ function renderIgFeed() {
     const g = ig();
     const shown = g.posts.filter(p => p.author === 'me' || g.follows[p.author]);
 
-    return `${igBar('INSTAGRAM', '')}
+    const wand = `<button class="ivyph-ig-barbtn" data-igconjure title="Наполнить ленту">
+        ${live.igBusy ? icon('spinner', 'ivyph-spin') : icon('wand')}
+    </button>`;
+
+    return `${igBar('INSTAGRAM', '', wand)}
     <div class="ivyph-ig-body">
         ${shown.length ? shown.map(igCard).join('') : `<div class="ivyph-ig-nothing">
             <b>Пока пусто</b>
@@ -4799,7 +4934,11 @@ function renderIgProfile(key) {
             ${mine
                 ? `<label class="ivyph-ig-edit">Ник
                        <input data-ighandle value="${esc(igHandle())}" placeholder="username" maxlength="30">
-                   </label>`
+                   </label>
+                   <div class="ivyph-ig-newrow">
+                       <button class="ivyph-ig-btn ivyph-ig-btn-wide" data-igava>Аватарка…</button>
+                       ${g.avatar ? '<button class="ivyph-ig-btn ivyph-ig-btn-wide ivyph-ig-following" data-igavadrop>Убрать</button>' : ''}
+                   </div>`
                 : `<button class="ivyph-ig-follow ivyph-ig-follow-wide${g.follows[key] ? ' ivyph-ig-following' : ''}"
                        data-igfollow="${esc(key)}">${g.follows[key] ? '✓ Following' : 'Follow'}</button>`}
 

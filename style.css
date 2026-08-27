@@ -1902,3 +1902,46 @@ body.ivyph-mounted .ivyph-launcher { display: none !important; }
 
 @keyframes ivyph-spin-kf { to { transform: rotate(360deg); } }
 .ivyph-spin { animation: ivyph-spin-kf 1s linear infinite; }
+
+/* ---- несгенерированный кадр: размытая подложка и описание */
+
+.ivyph-ig-blur {
+    position: relative;
+    min-height: 190px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: #dfe2e6;
+}
+
+.ivyph-ig-blurbg {
+    position: absolute;
+    inset: -20px;
+    background:
+        radial-gradient(circle at 28% 32%, rgba(120, 150, 180, .85), transparent 55%),
+        radial-gradient(circle at 72% 62%, rgba(170, 155, 130, .8), transparent 52%),
+        radial-gradient(circle at 48% 84%, rgba(140, 165, 140, .75), transparent 58%),
+        linear-gradient(150deg, #c9ced4, #aeb6be);
+    filter: blur(16px);
+}
+
+.ivyph-ig-blurin {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 11px;
+    padding: 20px 18px;
+    text-align: center;
+}
+
+.ivyph-ig-blurtext {
+    font-size: 12px;
+    line-height: 1.45;
+    color: #1f2429;
+    text-shadow: 0 1px 2px rgba(255, 255, 255, .65);
+}
+
+.ivyph-ig-tag { color: #1b4a76; font-weight: 600; }
+
+.ivyph-ig-igava-note { font-size: 10.5px; color: #8b8f94; }
