@@ -1718,8 +1718,15 @@ function parseLine(line, mesId) {
                 logDebug(`дубль фото от ${from} пропущен`);
                 return null;
             }
+            // Без shot в generatePhoto срабатывает ветка facePhoto, и к ЛЮБОМУ
+            // фото из маркера пришивалось имя + внешность → снова портрет.
+            const pText = String(parts[0] || '');
+            const shot = /\bmirror\b/i.test(pText) ? 'mirror'
+                : /\b(selfie|face|portrait|arm'?s length|looking into the (?:lens|camera))\b/i.test(pText) ? 'selfie'
+                : 'around';
+
             return addEvent({
-                mesId, type: 'photo', dir, from, group,
+                mesId, type: 'photo', dir, from, group, shot,
                 prompt: parts.shift() || '',
                 text: parts.join('|'),
                 state: 'idle',
@@ -1846,14 +1853,18 @@ async function generateViaTag(ev, prompt) {
     // ждём подмены [IMG:GEN] на реальный путь — до 3 минут
     for (let i = 0; i < 180; i++) {
         await wait(1000);
-        // перечитываем именно из живого chat — sillyimages пишет туда же
-        const body = String(getContext().chat?.[idx]?.mes || '');
+        // Ищем носитель по метке, а не по сохранённому индексу: пока идёт
+        // генерация, в чат может прийти новое сообщение и idx уедет на чужое.
+        const live = getContext().chat || [];
+        const at = live.findIndex(m => m?.extra?.ivyph_carrier === token);
+        if (at < 0) break;
+        const body = String(live[at]?.mes || '');
         const src = body.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1];
 
         if (src && !/IMG:GEN/i.test(src) && !/error\.svg/i.test(src)) {
             ev.image = src;
             ev.state = 'done';
-            removeCarrier(token);
+            await removeCarrier(token);
             return true;
         }
         if (/error\.svg/i.test(body)) {
@@ -1863,7 +1874,7 @@ async function generateViaTag(ev, prompt) {
         }
     }
 
-    removeCarrier(token);
+    await removeCarrier(token);
     return false;
 }
 
@@ -1908,12 +1919,31 @@ async function generatePhoto(ev) {
 
     const who = (ev.dir === 'in' && facePhoto) ? capitalize(c?.name || ev.from) : '';
     const look = facePhoto ? [c?.anchor, c?.clothes] : [];
-    const noFace = facePhoto ? '' : 'no people in frame, nobody visible, no face, no portrait';
+
+    // Для subject/object рука в кадре допустима — так написано и в SHOT_KINDS.
+    // Раньше здесь стояло «nobody visible», и это спорило с самим типом кадра.
+    const noFace = facePhoto ? ''
+        : (ev.shot === 'subject' || ev.shot === 'object')
+            ? 'no face, no portrait, at most a hand in frame'
+            : 'no people in frame, nobody visible, no face, no portrait';
+
+    // Описатель мог сам вписать имя («Zo's plate of tacos»). Генератор цепляет
+    // портретный референс по совпадению имени, а референс всегда перевешивает
+    // текст — поэтому в непортретном кадре имя вычищаем.
+    let body = cleanPrompt;
+    const nm = String(c?.name || ev.from || '').trim();
+    if (!facePhoto && nm) {
+        const esc = nm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        body = body
+            .replace(new RegExp(`\\b${esc}(?:'s|’s)?\\b`, 'gi'), 'the person')
+            .replace(/\bthe person's\b/gi, 'their')
+            .trim();
+    }
 
     // Качество упоминаем дважды — в начале и в конце: модели тянут к красивой
     // картинке и одного упоминания в середине не слышат.
     const cam = CAMERAS[s.camera] || CAMERAS.none;
-    const prompt = [cam.tech, who, ...look, cleanPrompt, noFace, cam.tail]
+    const prompt = [cam.tech, who, ...look, body, noFace, cam.tail]
         .filter(Boolean).join(', ');
 
     ev.state = 'pending';
@@ -1988,27 +2018,56 @@ const SHOT_KINDS = {
     object: 'A close-up of a single object near them, shot from above or held in one hand.',
 };
 
+// Слова, после которых кадр — это место вокруг, а не предмет в руках.
+const PLACE_WORDS = /^(room|place|view|street|sky|outside|window|apartment|flat|house|home|kitchen|bar|cafe|office|комнат|вид|улиц|небо|кварти|дом|кухн|бар|кафе|офис)/i;
+
+// Что именно попросили показать. Возвращает '' если просьба общая («send a pic»).
+function askedSubject(request) {
+    const r = String(request || '').toLowerCase().trim();
+    const m = r.match(
+        /(?:show|send|see)\s+(?:me\s+)?(?:your\s+|the\s+|a\s+|an\s+)?([a-z][a-z\s'-]{1,30})/
+    ) || r.match(
+        /(?:покажи|пришли|скинь|кинь)\s+(?:мне\s+)?(?:сво[йюяё]\s+)?([а-яё][а-яё\s-]{1,30})/
+    ) || [];
+
+    // «pic of your dinner» → «dinner», «фотку ужина» → «ужина».
+    // Порядок альтернатив важен: «pic» раньше «picture» откусывал бы только
+    // начало слова и оставлял мусор вроде «ture». Для кириллицы отдельная
+    // строка: \b в JS работает только по ASCII и после «фотку» не срабатывает.
+    return String(m[1] || '')
+        .replace(/^(?:pictures?|photos?|pics?|shots?|snaps?)\b\s*(?:of\s+)?/i, '')
+        .replace(/^(?:фотограф\S*|фотк\S*|фото)(?=\s|$)\s*(?:с\s+)?/i, '')
+        .replace(/\s+(?:and|please)\b.*$/i, '')
+        .replace(/\s+(?:пожалуйста|и|или)(?=\s|$).*$/i, '')
+        // «пришли фото пожалуйста» → после снятия «фото» остаётся вежливость,
+        // а это не предмет съёмки
+        .replace(/^(?:please|plz|пожалуйста|плиз|срочно)(?=\s|$)\s*/i, '')
+        .trim();
+}
+
 // Просьба может прямо называть предмет — тогда снимаем его, а не лицо.
 function pickShot(request, selfieBias) {
     const r = String(request || '').toLowerCase().trim();
+    const asked = askedSubject(r);
 
-    // Просьба про них самих: строго по отдельным словам, иначе «your garden»
-    // ловилось как «you» и всё превращалось в селфи.
-    const aboutThem = /\b(you|yourself|selfie|себя|тебя|селфи)\b/.test(r)
-        || /\byour\s+(face|hair|outfit|smile|eyes)\b/.test(r)
-        || /(сво[её]\s+лицо|как\s+ты\s+выглядишь)/.test(r);
+    // Просьба про них самих. Раньше здесь стояло голое /\byou\b/, и хвост вроде
+    // «...probably I'll invite you lol» превращал просьбу про ужин в селфи.
+    const aboutThem = /\b(selfie|селфи)\b/.test(r)
+        || /\bof\s+(?:you|yourself)\b/.test(r)
+        || /\byour\s+(face|hair|outfit|fit|smile|eyes|look)\b/.test(r)
+        || /(сво[её]\s+лицо|как\s+ты\s+выглядишь|покажи\s+себя|себя\s+покажи)/.test(r)
+        || /^(?:you|yourself|тебя|себя)(?=\s|$)/.test(asked);
 
-    // Просьба про конкретный предмет или место: «show me your shoes», «фото сада»
-    const thing = r.match(/\b(?:show me|send me|see)\s+(?:your\s+|the\s+|a\s+)?([a-z][a-z\s]{2,30})/)
-        || r.match(/(?:покажи|пришли|скинь)\s+(?:мне\s+)?(?:сво[йюяё]\s+)?([а-яё][а-яё\s]{2,30})/);
+    const named = !!asked
+        && !/^(?:you|yourself|something|smth)\b/.test(asked)
+        && !/^(?:тебя|себя|что[-\s]*нибудь|что[-\s]*то)(?=\s|$)/.test(asked);
 
-    const named = thing && !/^(you|yourself|себя|тебя)\b/.test(thing[1].trim());
-
-    if (named && !aboutThem) return 'subject';
     if (aboutThem) return Math.random() < 0.7 ? 'selfie' : 'mirror';
+    if (named) return PLACE_WORDS.test(asked) ? 'around' : 'subject';
 
     const roll = Math.random() * 100;
-    const bias = Number(selfieBias) || 55;
+    const raw = Number(selfieBias);
+    const bias = Number.isFinite(raw) ? Math.min(100, Math.max(0, raw)) : 55;
     if (roll < bias * 0.75) return 'selfie';
     if (roll < bias) return 'mirror';
     if (roll < bias + (100 - bias) * 0.5) return 'around';
@@ -2386,7 +2445,7 @@ function maybeScam() {
 function instructionText() {
     const s = settings();
     if (s.compact) {
-        return '[Phone] To send texts, calls or photos, emit: [PHONE] SMS|Name|text / PHOTO|Name|english image prompt|caption / CALL|Name|incoming|missed / TIME|HH:MM|date [/PHONE]';
+        return '[Phone] To send texts, calls or photos, emit: [PHONE] SMS|Name|text / PHOTO|Name|english image prompt|caption / CALL|Name|incoming|missed / TIME|HH:MM|date [/PHONE] — a PHOTO prompt describes what was asked for (food, room, object), not the sender\'s face, unless the owner asked for them.';
     }
     return [
         '[Phone system]',
@@ -2405,6 +2464,10 @@ function instructionText() {
         'When the owner asks for a picture, you MUST answer with a PHOTO line inside the block.',
         'Never refuse a photo, never say you cannot send images, never describe the photo in prose instead.',
         'Photo prompts in English, framing only: place, light, angle. Max 4 lines per block.',
+        'Photograph what was actually asked for. If the owner asked to see food, a room, a pet or an',
+        'object, the PHOTO prompt describes THAT — not the sender\'s face. Only write a face or selfie',
+        'prompt when the owner asked to see the person themselves.',
+        'In an object or place prompt never mention the sender by name and never describe their looks.',
     ].join('\n');
 }
 
@@ -3678,23 +3741,33 @@ async function deliverPhoto(c, request, sentEvent) {
         const shot = pickShot(request, settings().selfieBias);
         logDebug(`кадр: ${shot}`);
 
-        const asked = (String(request || '').match(
-            /(?:show me|send me|покажи|пришли|скинь)\s+(?:your\s+|мне\s+|сво[йюяё]\s+)?([^.,!?\n]{2,40})/i
-        ) || [])[1];
+        const asked = askedSubject(request);
 
         const описание = await askModel([
-        `Scene right now:\n${scene}`,
-        c.place ? `${c.name} is at: ${c.place}` : '',
-        `Shot type: ${SHOT_KINDS[shot]}`,
-        `Answer with ONE line describing what is visible in that photo:`,
-        `the subject, the room or place around it, the time of day, the angle.`,
-        `Under 25 words. No camera settings, no lighting jargon, no quality words,`,
-        `no names, no quotes, no explanation. Just what is in the picture.`,
-    ].filter(Boolean).join('\n\n'));
+            cardContext(),
+            await lorebookContext(`${scene} ${c.name}`),
+            `Scene right now:\n${scene}`,
+            c.lore ? `Who ${c.name} is: ${c.lore}` : '',
+            c.place ? `${c.name} is at: ${c.place}` : '',
+            c.clothes ? `What they are wearing: ${c.clothes}` : '',
+            asked
+                ? `The owner asked specifically to see: ${asked}. That is the subject of the photo — it must fill the frame.`
+                : '',
+            `Shot type: ${SHOT_KINDS[shot]}`,
+            SHOT_RULE,
+            `Answer with ONE line describing what is visible in that photo:`,
+            `the subject, the room or place around it, the time of day, the angle.`,
+            `Keep it plain and ordinary — this is a throwaway phone snap, not a shoot.`,
+            `Under 25 words. No camera settings, no lighting jargon, no quality words,`,
+            `no names, no quotes, no explanation. Just what is in the picture.`,
+            `Do NOT include any HEADER, CROSSROADS, COMMENTS or other UI panel.`,
+        ].filter(Boolean).join('\n\n'));
 
         live.typing = '';
 
-        const prompt = stripPanels(shot).replace(/^["']|["']$/g, '').split('\n')[0].trim();
+        // Здесь была главная поломка: в промпт уходило stripPanels(shot), то есть
+        // буквально слово «selfie», а ответ модели выбрасывался.
+        const prompt = stripPanels(описание).replace(/^["']|["']$/g, '').split('\n')[0].trim();
         if (!prompt || /HEADER|CROSSROADS|COMMENTS/i.test(prompt)) {
             logDebug('модель не описала кадр');
             render();
@@ -4118,6 +4191,7 @@ function buildSettingsPanel() {
                         <option value="slash">Слэш-команда</option>
                     </select>
                 </label>
+                <label>Доля селфи, когда просьба общая (%)<input class="text_pole" type="number" min="0" max="100" data-s="selfieBias"></label>
                 <label>Тег для картинки<input class="text_pole" data-s="imageTag"></label>
                 <label>Слэш-команда<input class="text_pole" data-s="imageCommand" placeholder="/sd quiet=true {{prompt}}"></label>
                 <label>Время в игре<input class="text_pole" data-s="timeMacro" placeholder="{{getvar::time}}"></label>
