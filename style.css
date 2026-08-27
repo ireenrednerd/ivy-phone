@@ -1958,3 +1958,34 @@ body.ivyph-mounted .ivyph-launcher { display: none !important; }
 
 .ivyph-ig-stats button b { color: #1b4a76; }
 .ivyph-ig-stats button:active b { opacity: .6; }
+
+/* Квадрат обязателен: генератор отдаёт 3:4, галерея — что угодно.
+   Обрезка идёт по центру, как в приложении. */
+.ivyph-ig-shot {
+    aspect-ratio: 1;
+    object-fit: cover;
+}
+
+.ivyph-ig-blur { aspect-ratio: 1; min-height: 0; }
+
+.ivyph-ig-likes {
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    font: 600 12px/1 var(--ph-sans, sans-serif);
+    color: #1b4a76;
+}
+
+.ivyph-ig-nobio { color: #9aa0a6; font-style: italic; }
+
+.ivyph-ig-new select {
+    width: 100%;
+    margin-top: 3px;
+    padding: 8px;
+    font-size: 12.5px;
+    border: 1px solid #bfc3c7;
+    border-radius: 3px;
+    background: #fff;
+    color: #23262a;
+}

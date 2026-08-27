@@ -1494,6 +1494,7 @@ const DEFAULTS = {
     proactive: true,
     proactiveChance: 12,
     igPostChance: 10,
+    igEveryMin: 0,
     strangerChance: 15,
     carrier: 'AT&T',
     ownerLabel: 'Я',
@@ -1946,9 +1947,13 @@ async function generatePhoto(ev) {
 
     // Для subject/object рука в кадре допустима — так написано и в SHOT_KINDS.
     // Раньше здесь стояло «nobody visible», и это спорило с самим типом кадра.
+    // Если в кадре может оказаться рука — она должна быть рукой этого героя.
+    const hands = bodyHint(`${c?.anchor || ''} ${c?.lore || ''}`);
     const noFace = facePhoto ? ''
         : (ev.shot === 'subject' || ev.shot === 'object')
-            ? 'no face, no portrait, at most a hand in frame'
+            ? [`no face, no portrait, at most a hand in frame`,
+                hands ? `if a hand or arm is visible it belongs to a person with ${hands}` : ''
+              ].filter(Boolean).join(', ')
             : 'no people in frame, nobody visible, no face, no portrait';
 
     // Описатель мог сам вписать имя («Zo's plate of tacos»). Генератор цепляет
@@ -1964,7 +1969,61 @@ async function generatePhoto(ev) {
             .trim();
     }
 
-    // Второй рубеж: описатель мог всё равно проговорить внешность (карточка
+    // Из описания внешности вытаскиваем только то, что видно на НЕпортретном
+// кадре: тон кожи, телосложение, руки, татуировки, лак, кольца. Генераторы
+// по умолчанию рисуют бледную европейскую руку, если не сказать иначе.
+// Из описания внешности вытаскиваем только то, что видно на НЕпортретном
+// кадре: тон кожи, телосложение, приметы рук. Генераторы по умолчанию рисуют
+// бледную европейскую руку, если не сказать иначе.
+//
+// Тон кожи берём РОВНО ОДИН и только там, где речь действительно о коже:
+// иначе «black hair» и «brown eyes» засчитывались как цвет кожи и в промпт
+// уходили три взаимоисключающих тона сразу.
+const SKIN_HINTS = [
+    [/\b(mexican|latina|latino|chicana|chicano|hispanic)\b/i, 'warm brown latina skin'],
+    [/\b(african|nigerian|ethiopian|afro[- ]?american|black (?:man|woman|girl|guy|skin))\b/i, 'deep brown skin'],
+    [/\b(japanese|korean|chinese|vietnamese|filipin\w*|east asian)\b/i, 'east asian skin tone'],
+    [/\b(south asian|indian|desi|pakistani|bengali)\b/i, 'south asian brown skin'],
+    [/\b(native american|indigenous|cherokee|navajo|lakota)\b/i, 'indigenous warm brown skin'],
+    [/\b(dark|deep|ebony)[- ]?(?:skin|skinned|complexion)\b|\bdark[- ]skinned\b/i, 'deep brown skin'],
+    [/\b(brown|tan|tanned|olive|bronze|golden|sun[- ]?kissed|weathered)[- ]?(?:skin|skinned|complexion)\b/i, 'tanned olive skin'],
+    [/\b(pale|fair|porcelain|milky|light)[- ]?(?:skin|skinned|complexion)\b/i, 'pale skin'],
+    [/\bfreckl\w*/i, 'pale freckled skin'],
+];
+
+const BUILD_HINTS = [
+    [/\b(thin|skinny|slender|slim|wiry|bony|lanky)\b/i, 'thin build, slender limbs'],
+    [/\b(curvy|thick|plump|soft|chubby|heavy[- ]set|fuller)\b/i, 'soft fuller build'],
+    [/\b(muscular|broad|burly|stocky|athletic|brawny)\b/i, 'broad muscular build'],
+];
+
+const MARK_HINTS = [
+    [/\b(tattoo|tatted|ink(?:ed)?)\w*/i, 'tattooed arms'],
+    [/\bscar(?:s|red)?\b/i, 'scarred skin'],
+    [/\b(calloused|rough hands|working hands|labor|ranch|farm)\b/i, 'rough calloused working hands'],
+    [/\b(nail polish|painted nails|chipped polish|manicure)\b/i, 'chipped nail polish'],
+    [/\b(rings?|bracelet|bangles|jewelry)\b/i, 'rings on the fingers'],
+];
+
+function firstHint(list, src) {
+    for (const [re, hint] of list) if (re.test(src)) return hint;
+    return '';
+}
+
+// Кадр без лица всё равно может показать руку — и она должна принадлежать
+// этому человеку, а не абстрактному белому манекену.
+function bodyHint(text) {
+    const src = String(text || '');
+    const marks = [];
+    for (const [re, hint] of MARK_HINTS) {
+        if (re.test(src)) marks.push(hint);
+        if (marks.length >= 2) break;
+    }
+    return [firstHint(SKIN_HINTS, src), firstHint(BUILD_HINTS, src), ...marks]
+        .filter(Boolean).join(', ');
+}
+
+// Второй рубеж: описатель мог всё равно проговорить внешность (карточка
     // персонажа обычно начинается с портрета, и это тянет модель за собой).
     // Инструкции — первый рубеж, это — сеть под ним, на случай если модель
     // их не услышала.
@@ -3677,6 +3736,27 @@ function wire() {
 
     s.querySelectorAll('[data-igopen]').forEach(n => n.addEventListener('click', () => go('ig')));
 
+    s.querySelectorAll('[data-iglikes]').forEach(n => n.addEventListener('click', () => {
+        const p = igPost(n.dataset.iglikes);
+        if (!p) return;
+        const next = prompt('Сколько лайков?', String(p.likes));
+        if (next === null) return;
+        const num = Number(String(next).replace(/[^\d]/g, ''));
+        if (!Number.isFinite(num)) return;
+        p.likes = Math.max(0, Math.round(num));
+        igSave();
+        render();
+    }));
+
+    s.querySelectorAll('[data-igbio]').forEach(n => n.addEventListener('click', () => {
+        const key = n.dataset.igbio;
+        const name = prompt('Имя в профиле', igName(key));
+        if (name === null) return;
+        const bio = prompt('Описание профиля — можно с #тегами', igBio(key));
+        if (bio === null) return;
+        igSetBio(key, name, bio);
+    }));
+
     s.querySelectorAll('[data-igstat]').forEach(n => n.addEventListener('click', () => {
         const key = n.dataset.igkey;
         const field = n.dataset.igstat;
@@ -3700,7 +3780,7 @@ function wire() {
         const next = prompt('Подпись к фото — можно с #тегами', p.caption || '');
         if (next === null) return;
         p.caption = next.slice(0, 200);
-        save();
+        igSave();
         render();
         pushInjection();
     }));
@@ -3714,8 +3794,8 @@ function wire() {
             const f = file.files?.[0];
             if (!f) return;
             try {
-                ig().avatar = await shrinkImage(f, 200);
-                save();
+                ig().avatar = await igSquare(f, 200);
+                igSave();
                 render();
             } catch (err) { logDebug(`аватарка не загрузилась: ${err?.message || err}`); }
         });
@@ -3725,7 +3805,7 @@ function wire() {
     const igAvaDrop = s.querySelector('[data-igavadrop]');
     if (igAvaDrop) igAvaDrop.addEventListener('click', () => {
         ig().avatar = '';
-        save();
+        igSave();
         render();
     });
 
@@ -3746,21 +3826,24 @@ function wire() {
     const nickField = s.querySelector('[data-ighandle]');
     if (nickField) nickField.addEventListener('change', () => {
         ig().handle = nickField.value.replace(/^@+/, '').trim();
-        save();
+        igSave();
         render();
     });
 
     // Черновик поста держим в live, иначе render() стирает набранное.
     const promptField = s.querySelector('[data-igprompt]');
     const capField = s.querySelector('[data-igcaption]');
+    const authorField = s.querySelector('[data-igauthor]');
     const keepDraft = () => {
         live.igDraft = {
             prompt: promptField?.value || '',
             caption: capField?.value || '',
+            author: authorField?.value || 'me',
         };
     };
     promptField?.addEventListener('input', keepDraft);
     capField?.addEventListener('input', keepDraft);
+    authorField?.addEventListener('change', keepDraft);
 
     const publish = s.querySelector('[data-igpublish]');
     if (publish) publish.addEventListener('click', async () => {
@@ -3768,7 +3851,7 @@ function wire() {
         const d = live.igDraft || {};
         if (!d.prompt && !d.caption) return;
         live.igDraft = {};
-        await igPublishOwn(d.caption, d.prompt, null);
+        await igPublishOwn(d.caption, d.prompt, null, d.author || 'me');
     });
 
     const igPickBtn = s.querySelector('[data-igpick]');
@@ -3782,7 +3865,7 @@ function wire() {
             if (!f) return;
             const d = live.igDraft || {};
             live.igDraft = {};
-            await igPublishOwn(d.caption, d.prompt, f);
+            await igPublishOwn(d.caption, d.prompt, f, d.author || 'me');
         });
         file.click();
     });
@@ -3877,6 +3960,41 @@ function wire() {
 
 // Аватарку ужимаем до 160px и кладём как data-url: метаданные чата
 // имеют лимит, полноразмерное фото туда пихать нельзя.
+// Квадрат для Инстаграма: режем по центру и сохраняем крупнее, чем аватарки.
+// Кадрирование делаем здесь, чтобы не подгонять размер снимка руками перед
+// каждой публикацией — исходники в расширении при этом не меняются.
+function igSquare(file, size = 720) {
+    return shrinkImage(file, size);
+}
+
+// Уже готовую картинку (сгенерированную или из чата) приводим к квадрату
+// тем же способом — через канву, по центру.
+function igSquareUrl(src, size = 720) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onerror = () => resolve('');
+        img.onload = () => {
+            try {
+                const side = Math.min(img.width, img.height);
+                const cv = document.createElement('canvas');
+                cv.width = cv.height = size;
+                cv.getContext('2d').drawImage(
+                    img,
+                    (img.width - side) / 2, (img.height - side) / 2, side, side,
+                    0, 0, size, size,
+                );
+                resolve(cv.toDataURL('image/jpeg', 0.86));
+            } catch {
+                // Картинка с чужого домена не даст прочитать канву — тогда
+                // оставляем как есть, обрежет уже вёрстка.
+                resolve('');
+            }
+        };
+        img.src = src;
+    });
+}
+
 function shrinkImage(file, size = 160) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -4280,10 +4398,40 @@ async function backgroundWork(mesId, text) {
 // Состояние живёт в том же chat_metadata, что и переписка: своя лента
 // у каждого чата, переживает перезагрузку, уезжает с экспортом.
 
+// Лента привязана к персонажу, а не к чату: данные лежат в настройках
+// расширения под ключом карточки. Начинаешь новый чат с тем же героем —
+// подписки, посты и профили остаются на месте.
+function igKey() {
+    const ctx = getContext();
+    const gid = ctx.groupId ?? ctx.group_id;
+    if (gid) return `group:${gid}`;
+    const chars = ctx.characters || [];
+    const cid = ctx.characterId ?? ctx.this_chid;
+    const ch = chars[cid];
+    return `char:${ch?.avatar || ch?.name || 'default'}`;
+}
+
+// Ленту сохраняем в настройки, а не в метаданные чата.
+function igSave() {
+    saveSettingsDebounced();
+}
+
 function ig() {
-    const s = store();
-    if (!s.insta) s.insta = {};
-    const g = s.insta;
+    const s = settings();
+    if (!s.igByChar) s.igByChar = {};
+    const key = igKey();
+    if (!s.igByChar[key]) s.igByChar[key] = {};
+    const g = s.igByChar[key];
+
+    // Переезд со старого хранилища: если в этом чате уже была лента,
+    // забираем её один раз и больше к метаданным не обращаемся.
+    const legacy = store().insta;
+    if (legacy && Array.isArray(legacy.posts) && !g.moved) {
+        Object.assign(g, legacy, { moved: true });
+        delete store().insta;
+    }
+    g.moved = true;
+
     if (!g.handle) g.handle = '';
     if (!g.bio) g.bio = '';
     if (!g.avatar) g.avatar = '';
@@ -4293,6 +4441,7 @@ function ig() {
     if (typeof g.seq !== 'number') g.seq = 1;
     if (!Array.isArray(g.notes)) g.notes = []; // лента уведомлений
     if (!g.stats) g.stats = {};              // ручные счётчики по персонажам
+    if (!g.bios) g.bios = {};                // имя и описание профиля
     return g;
 }
 
@@ -4360,7 +4509,34 @@ function igSetStat(key, field, value) {
     // Свои подписчики живут ещё и в g.followers — движок лайков крутит именно
     // это поле, поэтому синхронизируем, иначе правка откатится после поста.
     if (key === 'me' && field === 'followers') g.followers = n;
-    save();
+    igSave();
+    render();
+}
+
+// Имя и описание профиля хранятся отдельно от карточки контакта. Раньше в
+// биографию подставлялось поле «кто это в твоём мире» — то есть служебная
+// заметка для тебя, и выглядело так, будто парень сам себя так описал.
+function igName(key) {
+    const g = ig();
+    const saved = (g.bios[key] || {}).name;
+    if (saved) return saved;
+    if (key === 'me') return getContext()?.name1 || 'Me';
+    const c = contact(key);
+    return c?.name || key;
+}
+
+function igBio(key) {
+    const g = ig();
+    const saved = (g.bios[key] || {}).bio;
+    return saved === undefined ? '' : saved;
+}
+
+function igSetBio(key, name, bio) {
+    const g = ig();
+    if (!g.bios[key]) g.bios[key] = {};
+    g.bios[key].name = String(name || '').slice(0, 60);
+    g.bios[key].bio = String(bio || '').slice(0, 200);
+    igSave();
     render();
 }
 
@@ -4379,15 +4555,63 @@ const IG_HANDLES = [
     'kylahhh', 'joshuaaa_t', 'emilyyy_k', 'garrett.lane', 'taylor_mariee',
 ];
 
-const IG_COMMENTS = [
-    'so pretty!!', 'omg love this', 'jealous!!', 'this is gorgeous', 'ahh yes!!',
-    'stop it 😍', 'wish i was there', 'beautiful!!', 'love love love',
-    'gorgeous 💛', 'this made my day', 'so cute!!', 'perfection', 'obsessed',
-    'this is everything', 'need this', 'yesss', 'so good', 'wow!!',
-    'i love this so much', 'stunning', 'omg 😭', 'this is so pretty',
-    'ugh so jealous', 'looks amazing', 'that light tho', 'my fav',
-    'incredible', 'love the colors', 'so dreamy', 'take me with you',
+// Реплики разбиты по настроению кадра: под грустной подписью «so cute!!»
+// читается издевательски, поэтому набор выбирается по смыслу.
+const IG_COMMENTS = {
+    generic: [
+        'this is gorgeous', 'love the colors', 'that light tho', 'so good',
+        'gorgeous 💛', 'this is everything', 'love this', 'stunning',
+    ],
+    sad: [
+        'hey, you ok?', 'thinking of you ❤️', 'call me later', 'sending love',
+        'here if you need anything', 'oh honey', 'praying for you',
+        'this hit me', 'hang in there', 'love you, text me',
+    ],
+    food: [
+        'ok now i\'m hungry', 'recipe?!', 'save me a plate', 'this looks unreal',
+        'drooling', 'what time is dinner lol', 'need this immediately',
+    ],
+    place: [
+        'where is this??', 'take me with you', 'adding to my list',
+        'this view!!', 'so peaceful', 'i miss it there', 'gorgeous spot',
+    ],
+    pet: [
+        'the sweetest face', 'give him a kiss from me', 'i would die for him',
+        'those eyes 😭', 'best boy', 'stop it he\'s perfect',
+    ],
+    rain: [
+        'perfect reading weather', 'so cozy', 'love a grey day',
+        'this is my kind of morning', 'the sound of it though',
+    ],
+    night: [
+        'late night same', 'cant sleep either', 'this light is unreal',
+        'go to bed lol', 'nightowl club',
+    ],
+};
+
+// Ключевые слова, по которым выбираем набор.
+const IG_MOODS = [
+    ['sad', /\b(miss|lonely|hard|tired|sad|cry|crying|gone|hurt|empty|sorry|funeral|hospital|worst|alone|broke|hate)\b|😭|💔/i],
+    ['food', /\b(dinner|lunch|breakfast|taco|pizza|coffee|cake|plate|kitchen table|cooking|soup|bread|pie)\b/i],
+    ['pet', /\b(dog|puppy|cat|kitten|horse|pup|goodboy|paws)\b/i],
+    ['rain', /\b(rain|storm|drizzle|grey|gray|fog|mist|cloudy|wet)\b/i],
+    ['night', /\b(night|midnight|3am|late|dark|moon|insomnia)\b/i],
+    ['place', /\b(porch|street|road|mountain|beach|river|window|view|city|forest|trail|garden|park)\b/i],
 ];
+
+function igMood(post) {
+    const text = `${post?.caption || ''} ${post?.prompt || ''}`;
+    for (const [name, re] of IG_MOODS) if (re.test(text)) return name;
+    return 'generic';
+}
+
+// Половину реплик берём из набора по настроению, половину — из общего,
+// чтобы под каждым дождливым фото не шли одни и те же пять фраз.
+function igComment(post) {
+    const mood = igMood(post);
+    const pool = (Math.random() < 0.7 ? IG_COMMENTS[mood] : IG_COMMENTS.generic) || IG_COMMENTS.generic;
+    return igPick(pool);
+}
 
 const IG_FIRST_COMMENTS = ['first!!', 'FIRST', 'first 😎'];
 
@@ -4450,7 +4674,11 @@ async function igGenerate(post) {
     const selfie = /\bselfie\b/i.test(post.shot || '');
     const who = selfie && c ? c.name : '';
     const look = selfie && c ? [c.anchor, c.clothes] : [];
-    const noFace = selfie ? '' : 'no face, no portrait, at most a hand in frame';
+    const hands = bodyHint(`${c?.anchor || ''} ${c?.lore || ''}`);
+    const noFace = selfie ? '' : [
+        'no face, no portrait, at most a hand in frame',
+        hands ? `if a hand or arm is visible it belongs to a person with ${hands}` : '',
+    ].filter(Boolean).join(', ');
 
     const prompt = [cam.tech, who, ...look, body, noFace, cam.tail].filter(Boolean).join(', ');
 
@@ -4464,8 +4692,13 @@ async function igGenerate(post) {
         const url = extractUrl(await runSlash(s.imageCommand.replace('{{prompt}}', prompt)));
         if (url) { post.image = url; post.state = 'done'; ok = true; }
     }
+    if (ok && post.image) {
+        // Ленте нужен квадрат: генератор отдаёт 3:4, обрезаем по центру здесь.
+        const square = await igSquareUrl(post.image);
+        if (square) post.image = square;
+    }
     if (!ok) { post.state = 'error'; logDebug(`пост без картинки: ${prompt.slice(0, 50)}`); }
-    save();
+    igSave();
     render();
 }
 
@@ -4499,7 +4732,7 @@ function igWave(postId, wave) {
             handle,
             text: (wave === 0 && post.comments.length === 0 && Math.random() < 0.12)
                 ? igPick(IG_FIRST_COMMENTS)
-                : igPick(IG_COMMENTS),
+                : igComment(post),
             ts: Date.now(),
             mine: false,
         });
@@ -4519,7 +4752,7 @@ function igWave(postId, wave) {
         else igNote(`${Math.abs(delta)} people unfollowed you`);
     }
 
-    save();
+    igSave();
     render();
 }
 
@@ -4534,48 +4767,60 @@ function igEngage(post) {
 
 // Комментарий от контакта пишет модель — только он должен звучать голосом
 // персонажа. Один запрос на пост, остальное закрывают заготовки выше.
-async function igContactComment(post) {
-    const following = igFollowing();
-    if (!following.length || Math.random() > 0.75) return;
+// Один-два контакта комментируют пост. Раньше это был максимум один и
+// только под своими постами — теперь и под чужими тоже, и мимо автора.
+async function igContactComment(post, howMany = 0) {
+    const author = post.author;
+    const pool = igFollowing().filter(k => k !== author && !contact(k)?.blocked);
+    if (!pool.length) return;
 
-    const key = igPick(following);
-    const c = contact(key);
-    if (!c || c.blocked) return;
+    const many = howMany || (Math.random() < 0.55 ? 1 : (Math.random() < 0.75 ? 2 : 0));
+    const chosen = [...pool].sort(() => Math.random() - 0.5).slice(0, many);
 
-    const text = await askModel([
-        cardContext(true),
-        c.lore ? `Who ${c.name} is: ${c.lore}` : '',
-        c.style ? `How ${c.name} writes: ${c.style}` : '',
-        `The phone owner just posted a photo on Instagram.`,
-        post.caption ? `Their caption: ${post.caption}` : '',
-        post.prompt ? `What is in the photo: ${post.prompt}` : '',
-        `Write ONE short Instagram comment ${c.name} would leave under it.`,
-        `Their voice, their punctuation, their emoji habits. Under 60 characters.`,
-        `Plain text only, no quotes, no name prefix, no explanation.`,
-    ].filter(Boolean).join('\n\n'));
+    for (const key of chosen) {
+        const c = contact(key);
+        if (!c) continue;
 
-    const clean = String(text || '').replace(/^["']|["']$/g, '').split('\n')[0].trim();
-    if (!clean) return;
+        const whose = author === 'me' ? 'the phone owner' : (contact(author)?.name || 'a friend');
+        const text = await askModel([
+            cardContext(true),
+            c.lore ? `Who ${c.name} is: ${c.lore}` : '',
+            // Манера переписки — то же поле, что управляет смс: пусть герой
+            // комментирует ровно так же, как пишет в чате.
+            c.style ? `How ${c.name} writes — match this exactly: ${c.style}` : '',
+            `${whose} just posted a photo on Instagram.`,
+            post.caption ? `Their caption: ${post.caption}` : '',
+            post.prompt ? `What is in the photo: ${post.prompt}` : '',
+            `Write ONE short Instagram comment ${c.name} would leave under it.`,
+            `React to what is actually in this photo and to the mood of the caption —`,
+            `if it is sad, do not write praise. Their voice, their punctuation,`,
+            `their emoji habits. Under 60 characters.`,
+            `Plain text only, no quotes, no name prefix, no explanation.`,
+        ].filter(Boolean).join('\n\n'));
 
-    const p = igPost(post.id);
-    if (!p) return;
-    p.comments.push({
-        id: `c${ig().seq++}`,
-        handle: igNick(c),
-        text: clean.slice(0, 120),
-        ts: Date.now(),
-        mine: false,
-        contact: key,
-    });
-    save();
-    render();
+        const clean = String(text || '').replace(/^["']|["']$/g, '').split('\n')[0].trim();
+        if (!clean) continue;
+
+        const p = igPost(post.id);
+        if (!p) return;
+        p.comments.push({
+            id: `c${ig().seq++}`,
+            handle: igNick(c),
+            text: clean.slice(0, 120),
+            ts: Date.now(),
+            mine: false,
+            contact: key,
+        });
+        igSave();
+        render();
+    }
 }
 
 // ---------------------------------------------------------------- публикация
 
-async function igPublishOwn(caption, promptText, file) {
+async function igPublishOwn(caption, promptText, file, author = 'me') {
     const post = igAddPost({
-        author: 'me',
+        author,
         caption: String(caption || '').trim(),
         prompt: String(promptText || '').trim(),
         shot: 'around',
@@ -4583,7 +4828,7 @@ async function igPublishOwn(caption, promptText, file) {
 
     if (file) {
         try {
-            post.image = await shrinkImage(file, 720);
+            post.image = await igSquare(file, 720);
             post.state = 'done';
         } catch (err) {
             post.state = 'error';
@@ -4591,11 +4836,12 @@ async function igPublishOwn(caption, promptText, file) {
         }
     }
 
-    save();
+    igSave();
     go('ig');
 
     // Публикация — событие сцены: пусть модель о ней знает.
-    await pushToChat(`[PHONE]\nIG|${settings().ownerLabel}|posted a photo${post.caption ? `: ${post.caption}` : ''}|out\n[/PHONE]`);
+    const who = author === 'me' ? settings().ownerLabel : (contact(author)?.name || author);
+    await pushToChat(`[PHONE]\nIG|${who}|posted a photo${post.caption ? `: ${post.caption}` : ''}|out\n[/PHONE]`);
     pushInjection();
 
     if (!file && post.prompt) await igGenerate(post);
@@ -4603,6 +4849,10 @@ async function igPublishOwn(caption, promptText, file) {
     igEngage(post);
     igContactComment(post);
 }
+
+// Пост за героя, написанный тобой вручную: та же публикация, но от его имени.
+// Полезно, когда по сюжету он выложил что-то конкретное, а не то, что придумает
+// модель.
 
 // Один пост одного контакта: текст сочиняет модель, картинка не трогается.
 async function igComposePost(key) {
@@ -4616,6 +4866,8 @@ async function igComposePost(key) {
         `Current scene:\n${scene}`,
         c.lore ? `Who ${c.name} is: ${c.lore}` : '',
         c.place ? `Where they live: ${c.place}` : '',
+        // Тот же текст, что управляет смс: подпись должна звучать как он пишет.
+        c.style ? `How ${c.name} writes — match this exactly, same casing, same punctuation, same emoji habits: ${c.style}` : '',
         `${c.name} is posting a photo on Instagram right now.`,
         `Answer with exactly two lines and nothing else:`,
         `PHOTO: one plain English line describing what is in the picture — an object, a place,`,
@@ -4660,12 +4912,13 @@ async function igComposePost(key) {
     for (let i = 0; i < 1 + Math.floor(Math.random() * 2); i++) {
         const h = igStranger(used);
         used.push(h);
-        post.comments.push({ id: `c${ig().seq++}`, handle: h, text: igPick(IG_COMMENTS), ts: Date.now(), mine: false });
+        post.comments.push({ id: `c${ig().seq++}`, handle: h, text: igComment(post), ts: Date.now(), mine: false });
     }
 
     igNote(`${igNick(c)} posted a photo`);
-    save();
+    igSave();
     render();
+    igContactComment(post);
 
     // Картинку намеренно НЕ генерируем: пост приходит с описанием под блюром,
     // и деньги тратятся только на те кадры, которые ты выберешь сама.
@@ -4682,6 +4935,36 @@ async function igMaybeContactPost() {
     const made = await igComposePost(igPick(following));
     if (made) pushInjection();
     return made;
+}
+
+// Лента живёт сама по времени, а не только от палочки. Таймер один на
+// расширение, интервал в минутах берётся из настроек; 0 выключает.
+let igTimer = null;
+
+function igStartTimer() {
+    if (igTimer) clearInterval(igTimer);
+    const mins = Number(settings().igEveryMin) || 0;
+    if (!mins) return;
+
+    igTimer = setInterval(async () => {
+        const s = settings();
+        if (!s.enabled || !s.igEveryMin) return;
+        // Пока идёт другая работа с моделью, в очередь не лезем.
+        if (live.igBusy || live.busyTurn) return;
+        const following = igFollowing().filter(k => !contact(k)?.blocked);
+        if (!following.length) return;
+        try {
+            live.igBusy = true;
+            render();
+            await igComposePost(igPick(following));
+            pushInjection();
+        } catch (err) {
+            logDebug(`пост по таймеру не вышел: ${err?.message || err}`);
+        } finally {
+            live.igBusy = false;
+            render();
+        }
+    }, Math.max(1, mins) * 60000);
 }
 
 // Волшебная палочка: разово наполнить ленту. Публикуют один-два контакта,
@@ -4704,7 +4987,7 @@ async function igConjureFeed() {
         }
     } finally {
         live.igBusy = false;
-        save();
+        igSave();
         render();
         pushInjection();
     }
@@ -4720,7 +5003,7 @@ function igToggleLike(id) {
         const c = contact(p.author);
         igNote(`you liked ${igNick(c)}'s photo`);
     }
-    save();
+    igSave();
     render();
 }
 
@@ -4736,7 +5019,7 @@ async function igAddComment(id, text) {
         ts: Date.now(),
         mine: true,
     });
-    save();
+    igSave();
     render();
 
     // Комментарий под чужим постом — обращение к человеку, автор может ответить.
@@ -4765,7 +5048,7 @@ async function igAddComment(id, text) {
                     mine: false,
                     contact: p.author,
                 });
-                save();
+                igSave();
                 render();
             }
         }
@@ -4777,7 +5060,7 @@ function igToggleFollow(key) {
     g.follows[key] = !g.follows[key];
     const c = contact(key);
     if (c) igNote(g.follows[key] ? `you followed ${igNick(c)}` : `you unfollowed ${igNick(c)}`);
-    save();
+    igSave();
     render();
     pushInjection();
 }
@@ -4907,7 +5190,7 @@ function igCard(p) {
             <button class="ivyph-ig-heart${p.liked ? ' ivyph-ig-liked' : ''}" data-iglike="${esc(p.id)}">
                 ${p.liked ? '♥' : '♡'}
             </button>
-            <span class="ivyph-ig-likes">${p.likes} like${p.likes === 1 ? '' : 's'}</span>
+            <button class="ivyph-ig-likes" data-iglikes="${esc(p.id)}">${p.likes} like${p.likes === 1 ? '' : 's'}</button>
         </div>
 
         ${p.caption ? `<div class="ivyph-ig-caption">
@@ -5015,8 +5298,9 @@ function renderIgProfile(key) {
                        data-igfollow="${esc(key)}">${g.follows[key] ? '✓ Following' : 'Follow'}</button>`}
 
             <div class="ivyph-ig-bio">
-                <b>${esc(mine ? (getContext()?.name1 || 'Me') : (c.label || c.name))}</b>
-                ${c?.lore ? `<span>${esc(c.lore)}</span>` : ''}
+                <b>${esc(igName(key))}</b>
+                <span>${igBio(key) ? igTags(igBio(key)) : '<i class="ivyph-ig-nobio">без описания</i>'}</span>
+                <button class="ivyph-ig-more" data-igbio="${esc(key)}">Изменить имя и описание</button>
             </div>
         </div>
 
@@ -5047,8 +5331,17 @@ function renderIgNews() {
 
 function renderIgNew() {
     const d = live.igDraft || {};
+    const people = Object.values(store().contacts);
     return `${igBar('NEW POST', 'ig')}
     <div class="ivyph-ig-body ivyph-ig-new">
+        <label>От чьего имени
+            <select data-igauthor>
+                <option value="me"${(d.author || 'me') === 'me' ? ' selected' : ''}>${esc(igHandle())} — я</option>
+                ${people.map(c => `<option value="${esc(c.key)}"${d.author === c.key ? ' selected' : ''}>
+                    ${esc(igNick(c))} — ${esc(c.label || c.name)}
+                </option>`).join('')}
+            </select>
+        </label>
         <label>Что на фото — по-английски, для генерации
             <textarea data-igprompt rows="3" placeholder="rain on the porch steps, ferns, grey afternoon">${esc(d.prompt || '')}</textarea>
         </label>
@@ -5133,6 +5426,7 @@ function init() {
     injectStyles();
     settings();
     buildShell();
+    igStartTimer();
 
     eventSource.on(event_types.MESSAGE_RECEIVED, ingest);
     eventSource.on(event_types.MESSAGE_SENT, ingestUser);
@@ -5221,6 +5515,7 @@ function buildSettingsPanel() {
                 <label>Шанс, что напишут (%)<input class="text_pole" type="number" data-s="proactiveChance"></label>
                 <label>Из них незнакомый номер (%)<input class="text_pole" type="number" data-s="strangerChance"></label>
                 <label>Шанс поста в Инстаграме за ход (%)<input class="text_pole" type="number" data-s="igPostChance"></label>
+                <label>Пост в Инстаграме каждые N минут (0 — выкл)<input class="text_pole" type="number" min="0" data-s="igEveryMin"></label>
 
                 <hr>
                 <b>Ответы</b>
@@ -5283,6 +5578,7 @@ function buildSettingsPanel() {
             saveSettingsDebounced();
             if (key === 'hideMarkers' || key === 'chatBadge') scrubAll();
             if (key === 'skin') render();
+            if (key === 'igEveryMin') igStartTimer();
             if (['autoInject', 'compact', 'injectDepth'].includes(key)) pushInjection();
         });
     });
