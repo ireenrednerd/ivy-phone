@@ -858,6 +858,15 @@
 .ivyph-more .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
 
 .ivyph-bub { padding-right: 28px; }
+
+/* В пузыре «печатает» трёх точек в углу нет, поэтому запас в 28px справа
+   растягивал его в широкую плашку. Возвращаем симметричные поля. */
+.ivyph-bub.ivyph-typing {
+    padding: 11px 13px;
+    min-width: 0;
+    width: auto;
+    align-self: flex-start;
+}
 .ivyph-bub time { padding-right: 2px; }
 
 .ivyph-msgtools {
@@ -924,12 +933,20 @@
 
 .ivyph-photo { cursor: zoom-in; }
 
-/* Над картинкой кнопка нуждается в подложке, иначе теряется на снимке. */
+/* Над картинкой подложка была кругом-«таблеткой» и лезла в глаза.
+   Читаемость даёт тень по контуру самих точек, а не плашка под ними. */
 .ivyph-bub:has(.ivyph-photo) .ivyph-more,
 .ivyph-bub:has(.ivyph-shot) .ivyph-more {
-    background: rgba(10, 14, 18, .5);
+    background: transparent;
     color: #fff;
-    opacity: .85;
+    opacity: .8;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .75));
+}
+
+.ivyph-bub:has(.ivyph-photo) .ivyph-more:hover,
+.ivyph-bub:has(.ivyph-shot) .ivyph-more:hover {
+    background: transparent !important;
+    opacity: 1;
 }
 
 .ivyph-shot-desc i { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1442,3 +1459,315 @@ body.ivyph-mounted .ivyph-launcher { display: none !important; }
     padding-left: 9px;
     border-left: 1px solid #3a444d;
 }
+
+/* ================================================================ instagram
+   Оформление приложения образца 2011 года: деревянная шапка, засечковый
+   логотип, синие акценты, карточки с рамкой — до плоского редизайна 2013-го. */
+
+.ivyph-ig-top {
+    display: grid;
+    grid-template-columns: 32px 1fr 32px;
+    align-items: center;
+    padding: 7px 8px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, .18), rgba(0, 0, 0, .28)),
+        repeating-linear-gradient(90deg, #7a5230 0 3px, #6d4926 3px 6px, #835934 6px 9px);
+    border-bottom: 1px solid #3f2a15;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22);
+    color: #fff;
+}
+
+.ivyph-ig-logo {
+    text-align: center;
+    font: 400 20px/1 "Snell Roundhand", "Apple Chancery", "Segoe Script", cursive, serif;
+    letter-spacing: .02em;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, .6);
+}
+
+.ivyph-ig-back,
+.ivyph-ig-newbtn {
+    background: none;
+    border: 0;
+    color: #fff;
+    padding: 4px;
+    cursor: pointer;
+    opacity: .9;
+}
+
+.ivyph-ig-feed,
+.ivyph-ig-profile,
+.ivyph-ig-new {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    background: #ded9d2;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ivyph-ig-mybar,
+.ivyph-ig-srow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    background: #fff;
+    border: 1px solid #c3bcb2;
+    border-radius: 4px;
+}
+
+.ivyph-ig-author {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: #17395c;
+    font-size: 13px;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.ivyph-ig-author b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ivyph-ig-ava {
+    width: 26px;
+    height: 26px;
+    border-radius: 3px;
+    object-fit: cover;
+    border: 1px solid #b6ac9e;
+    flex: none;
+}
+
+.ivyph-ig-ava-blank {
+    display: grid;
+    place-items: center;
+    background: #8b8378;
+    color: #fff;
+    font: 600 12px/1 var(--ph-sans, sans-serif);
+}
+
+.ivyph-ig-ava-blank .ivyph-i { width: 15px; height: 15px; }
+
+.ivyph-ig-stat { font-size: 11px; color: #6b6459; }
+
+.ivyph-ig-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.ivyph-ig-note {
+    font-size: 11px;
+    color: #4a5a3c;
+    background: #eef3e6;
+    border: 1px solid #c8d5b8;
+    border-radius: 3px;
+    padding: 4px 7px;
+}
+
+.ivyph-ig-post {
+    background: #fff;
+    border: 1px solid #c3bcb2;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+}
+
+.ivyph-ig-head {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    background: linear-gradient(180deg, #fdfdfd, #ececec);
+    border-bottom: 1px solid #d3ccc2;
+}
+
+.ivyph-ig-head .ivyph-more { position: static; opacity: .35; }
+
+.ivyph-ig-shot { display: block; width: 100%; }
+
+.ivyph-ig-blank {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 150px;
+    padding: 14px;
+    text-align: center;
+    font-size: 11px;
+    color: #6b6459;
+    background: repeating-linear-gradient(45deg, #efece7 0 8px, #e7e3dc 8px 16px);
+}
+
+.ivyph-ig-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-bottom: 1px solid #eee7de;
+}
+
+.ivyph-ig-like {
+    background: none;
+    border: 0;
+    font-size: 19px;
+    line-height: 1;
+    color: #8b8378;
+    cursor: pointer;
+    padding: 0;
+}
+
+.ivyph-ig-liked { color: #c3352b; }
+.ivyph-ig-likes { font-size: 12px; font-weight: 600; color: #17395c; }
+.ivyph-ig-time { margin-left: auto; font-size: 10px; color: #948c81; }
+
+.ivyph-ig-caption,
+.ivyph-ig-comment {
+    padding: 4px 8px;
+    font-size: 12px;
+    line-height: 1.35;
+    word-break: break-word;
+}
+
+.ivyph-ig-caption b,
+.ivyph-ig-comment b { color: #17395c; }
+
+.ivyph-ig-comments { padding-bottom: 4px; }
+.ivyph-ig-mine { background: #f6f8fb; }
+
+.ivyph-ig-more {
+    background: none;
+    border: 0;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: #7c7468;
+    cursor: pointer;
+}
+
+.ivyph-ig-addc {
+    display: flex;
+    gap: 5px;
+    padding: 6px 8px;
+    border-top: 1px solid #eee7de;
+    background: #faf8f5;
+}
+
+.ivyph-ig-cinput {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    padding: 5px 7px;
+    border: 1px solid #c3bcb2;
+    border-radius: 3px;
+    background: #fff;
+    color: #23262a;
+}
+
+.ivyph-ig-suggest {
+    background: #fff;
+    border: 1px solid #c3bcb2;
+    border-radius: 4px;
+    padding: 7px;
+}
+
+.ivyph-ig-suggest h4 {
+    margin: 0 0 6px;
+    font: 600 11px/1 var(--ph-sans, sans-serif);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #7c7468;
+}
+
+.ivyph-ig-suggest .ivyph-ig-srow { border: 0; border-top: 1px solid #eee7de; border-radius: 0; }
+
+.ivyph-ig-phead {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+    background: #fff;
+    border: 1px solid #c3bcb2;
+    border-radius: 4px;
+}
+
+.ivyph-ig-phead .ivyph-ig-ava { width: 56px; height: 56px; }
+
+.ivyph-ig-pstats {
+    display: flex;
+    flex: 1;
+    justify-content: space-around;
+    text-align: center;
+}
+
+.ivyph-ig-pstats b { display: block; font-size: 15px; color: #17395c; }
+.ivyph-ig-pstats span { font-size: 10px; color: #7c7468; }
+
+.ivyph-ig-bio,
+.ivyph-ig-bioline {
+    display: block;
+    font-size: 12px;
+    color: #4a453d;
+}
+
+.ivyph-ig-bio input {
+    width: 100%;
+    margin-top: 3px;
+    padding: 6px 7px;
+    border: 1px solid #c3bcb2;
+    border-radius: 3px;
+    background: #fff;
+    color: #23262a;
+}
+
+.ivyph-ig-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+}
+
+.ivyph-ig-cell {
+    aspect-ratio: 1;
+    padding: 0;
+    border: 1px solid #c3bcb2;
+    background: #efece7;
+    overflow: hidden;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    color: #a79e92;
+}
+
+.ivyph-ig-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.ivyph-ig-new label {
+    display: block;
+    font-size: 11px;
+    color: #6b6459;
+    margin-bottom: 8px;
+}
+
+.ivyph-ig-new textarea,
+.ivyph-ig-new input {
+    width: 100%;
+    margin-top: 3px;
+    padding: 7px;
+    font: inherit;
+    font-size: 12px;
+    border: 1px solid #c3bcb2;
+    border-radius: 3px;
+    background: #fff;
+    color: #23262a;
+    resize: vertical;
+}
+
+.ivyph-ig-newrow { display: flex; gap: 6px; }
+.ivyph-ig-new .ivyph-hint { font-size: 10.5px; color: #7c7468; margin: 6px 0 0; }
+
+@keyframes ivyph-spin-kf { to { transform: rotate(360deg); } }
+.ivyph-spin { animation: ivyph-spin-kf 1s linear infinite; }
