@@ -1706,13 +1706,24 @@ function parseLine(line, mesId) {
             return addEvent({ mesId, type: 'sms', dir, from, group, text: parts.join('|') });
 
         case 'PHOTO':
-        case 'IMG':
+        case 'IMG': {
+            // Телефон уже мог отправить фото по просьбе. Если модель следом
+            // прислала свой маркер, это дубль того же снимка — пропускаем.
+            const recent = store().events.some(e =>
+                e.type === 'photo'
+                && resolveKey(e.from) === resolveKey(from)
+                && Date.now() - e.ts < 90000);
+            if (recent && dir === 'in') {
+                logDebug(`дубль фото от ${from} пропущен`);
+                return null;
+            }
             return addEvent({
                 mesId, type: 'photo', dir, from, group,
                 prompt: parts.shift() || '',
                 text: parts.join('|'),
                 state: 'idle',
             });
+        }
 
         case 'VOICE':
             return addEvent({ mesId, type: 'voice', dir, from, dur: parts.shift() || '0:07' });
@@ -3657,29 +3668,19 @@ async function deliverPhoto(c, request, sentEvent) {
         const shot = pickShot(request, settings().selfieBias);
         logDebug(`кадр: ${shot}`);
 
+        const asked = (String(request || '').match(
+            /(?:show me|send me|покажи|пришли|скинь)\s+(?:your\s+|мне\s+|сво[йюяё]\s+)?([^.,!?\n]{2,40})/i
+        ) || [])[1];
+
         const описание = await askModel([
-            cardContext(),
-            await lorebookContext(`${scene} ${c.name}`),
-            `Current scene:\n${scene}`,
-            c.lore ? `Who ${c.name} is: ${c.lore}` : '',
-            c.place ? `Where they live: ${c.place}` : '',
-            c.clothes ? `What they are wearing: ${c.clothes}` : '',
-            `The phone owner just texted ${c.name}: "${request}"`,
-            `That is a request for a photo. ${c.name} takes it and sends it — they do not refuse,`,
-            `do not promise it for later, do not answer in words.`,
-            `Describe the photo they actually take, in English, as an image prompt.`,
-            `Shot type for this photo: ${SHOT_KINDS[shot]}`,
-            shot === 'subject'
-                ? `The owner asked to see a specific thing. That thing must be the subject of the photo, `
-                    + `clearly visible and filling the frame. Do not send a portrait instead.`
-                : '',
-            SHOT_RULE,
-            `Framing only: subject, place, light, time of day, angle, what is in frame.`,
-            `Keep it plain and ordinary. Do not add artistic words like cinematic, dramatic,`,
-            `moody, golden hour, bokeh, professional, high detail — this is a throwaway phone snap.`,
-            `Do not describe how anyone looks — appearance is attached separately.`,
-            `One line, under 200 characters, no quotes, no explanation, no HEADER or other UI panel.`,
-        ].filter(Boolean).join('\n\n'));
+        `Scene right now:\n${scene}`,
+        c.place ? `${c.name} is at: ${c.place}` : '',
+        `Shot type: ${SHOT_KINDS[shot]}`,
+        `Answer with ONE line describing what is visible in that photo:`,
+        `the subject, the room or place around it, the time of day, the angle.`,
+        `Under 25 words. No camera settings, no lighting jargon, no quality words,`,
+        `no names, no quotes, no explanation. Just what is in the picture.`,
+    ].filter(Boolean).join('\n\n'));
 
         live.typing = '';
 
