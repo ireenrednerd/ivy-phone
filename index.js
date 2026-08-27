@@ -3404,7 +3404,8 @@ function render() {
     // экран, выбранный вручную, имеет приоритет — иначе телефон залипает.
     const ringing = store().events.find(e => e.type === 'call' && e.status === 'incoming' && !e.read);
     const stuckOnCall = ringing
-        && !['log', 'contacts', 'card', 'thread', 'newgroup', 'ig', 'igprofile', 'ignew'].includes(screen.name);
+        && !['log', 'contacts', 'card', 'thread', 'newgroup',
+            'ig', 'igprofile', 'ignew', 'igexplore', 'ignews', 'igme'].includes(screen.name);
 
     let html;
     if (stuckOnCall) { html = renderCall(ringing); screen.arg = ringing.id; }
@@ -3416,6 +3417,9 @@ function render() {
     else if (screen.name === 'dialing') html = renderDialing(screen.arg);
     else if (screen.name === 'newgroup') html = renderNewGroup();
     else if (screen.name === 'ig') html = renderIgFeed();
+    else if (screen.name === 'igexplore') html = renderIgExplore();
+    else if (screen.name === 'ignews') html = renderIgNews();
+    else if (screen.name === 'igme') html = renderIgProfile('me');
     else if (screen.name === 'igprofile') html = renderIgProfile(screen.arg);
     else if (screen.name === 'ignew') html = renderIgNew();
     else html = renderHome();
@@ -4350,6 +4354,10 @@ function igWave(postId, wave) {
     const add = Math.max(1, Math.round((reach * (0.04 + Math.random() * 0.09)) / (wave + 1)));
     post.likes += add;
 
+    if (wave === 1 && post.author === 'me' && Math.random() < 0.8) {
+        igNote(`${igStranger()} liked your photo`);
+    }
+
     const used = post.comments.map(x => x.handle);
     const many = Math.random() < 0.55 ? 1 : (Math.random() < 0.7 ? 2 : 0);
     for (let i = 0; i < many; i++) {
@@ -4373,8 +4381,8 @@ function igWave(postId, wave) {
             ? Math.round(1 + Math.random() * Math.max(2, reach * 0.03))
             : -Math.round(1 + Math.random() * 2);
         g.followers = Math.max(0, g.followers + delta);
-        if (delta > 0) igNote(`${delta} new follower${delta === 1 ? '' : 's'}`);
-        else igNote(`${Math.abs(delta)} unfollowed you`);
+        if (delta > 0) igNote(`${igStranger()} and ${delta - 1 > 0 ? `${delta - 1} others` : 'others'} started following you`);
+        else igNote(`${Math.abs(delta)} people unfollowed you`);
     }
 
     save();
@@ -4523,6 +4531,10 @@ function igToggleLike(id) {
     if (!p) return;
     p.liked = !p.liked;
     p.likes = Math.max(0, p.likes + (p.liked ? 1 : -1));
+    if (p.liked && p.author !== 'me') {
+        const c = contact(p.author);
+        igNote(`you liked ${igNick(c)}'s photo`);
+    }
     save();
     render();
 }
@@ -4598,20 +4610,21 @@ function igLog(limit = 6) {
 }
 
 // ---------------------------------------------------------------- экраны
+// Раскладка приложения версии 2012: синяя шапка с прописным логотипом,
+// тёмная панель вкладок снизу с приподнятой камерой в центре, белые карточки
+// постов и сетка квадратов в профиле.
 
-function igAvatar(key) {
+function igAvatar(key, cls = '') {
     if (key === 'me') {
         const ctx = getContext();
-        // Те же поля, что использует syncFromContext: они отличаются между
-        // версиями таверны, поэтому перебираем оба варианта.
         const url = personaAvatarUrl(ctx?.userAvatar || ctx?.user_avatar || '');
         return url
-            ? `<img class="ivyph-ig-ava" src="${esc(url)}" alt="">`
-            : `<span class="ivyph-ig-ava ivyph-ig-ava-blank">${icon('user')}</span>`;
+            ? `<img class="ivyph-ig-ava ${cls}" src="${esc(url)}" alt="">`
+            : `<span class="ivyph-ig-ava ivyph-ig-ava-blank ${cls}">${icon('user')}</span>`;
     }
     const c = contact(key);
-    if (c?.avatar) return `<img class="ivyph-ig-ava" src="${esc(c.avatar)}" alt="">`;
-    return `<span class="ivyph-ig-ava ivyph-ig-ava-blank" style="background:${esc(c?.color || '#3d4a55')}">`
+    if (c?.avatar) return `<img class="ivyph-ig-ava ${cls}" src="${esc(c.avatar)}" alt="">`;
+    return `<span class="ivyph-ig-ava ivyph-ig-ava-blank ${cls}" style="background:${esc(c?.color || '#3d4a55')}">`
         + `${esc(String(c?.name || '?').slice(0, 1).toUpperCase())}</span>`;
 }
 
@@ -4619,31 +4632,48 @@ function igWho(key) {
     return key === 'me' ? igHandle() : igNick(contact(key));
 }
 
-function igTopBar(title, back) {
-    return `<div class="ivyph-ig-top">
-        ${back ? `<button class="ivyph-ig-back" data-go="${esc(back)}">${icon('chevronLeft')}</button>` : '<span></span>'}
-        <span class="ivyph-ig-logo">${esc(title)}</span>
-        <button class="ivyph-ig-newbtn" data-go="ignew" title="Новый пост">${icon('camera')}</button>
+// Шапка: слева необязательная кнопка возврата, по центру заголовок капсом.
+function igBar(title, back, right = '') {
+    return `<div class="ivyph-ig-bar">
+        ${back
+            ? `<button class="ivyph-ig-barbtn" data-go="${esc(back)}">${icon('chevronLeft')}</button>`
+            : '<span class="ivyph-ig-barbtn"></span>'}
+        <span class="ivyph-ig-title">${esc(title)}</span>
+        ${right || '<span class="ivyph-ig-barbtn"></span>'}
+    </div>`;
+}
+
+// Нижние вкладки самого приложения — отдельные от дока телефона.
+function igTabs(active) {
+    const tab = (name, label, ico) => `<button class="ivyph-ig-tab${active === name ? ' ivyph-ig-tab-on' : ''}"
+        data-go="${esc(name)}">${icon(ico)}<span>${esc(label)}</span></button>`;
+
+    return `<div class="ivyph-ig-tabs">
+        ${tab('ig', 'Feed', 'image')}
+        ${tab('igexplore', 'Popular', 'group')}
+        <button class="ivyph-ig-shutter" data-go="ignew" title="New post">${icon('camera')}</button>
+        ${tab('ignews', 'News', 'info')}
+        ${tab('igme', 'Profile', 'user')}
     </div>`;
 }
 
 function igStamp(ts) {
     const mins = Math.round((Date.now() - ts) / 60000);
     if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
+    if (mins < 60) return `${mins}m`;
     const h = Math.round(mins / 60);
-    if (h < 24) return `${h}h ago`;
-    return `${Math.round(h / 24)}d ago`;
+    if (h < 24) return `${h}h`;
+    return `${Math.round(h / 24)}d`;
 }
 
 function igMedia(p) {
     if (p.image) return `<img class="ivyph-ig-shot" src="${esc(p.image)}" alt="${esc(p.caption || 'photo')}">`;
     if (p.state === 'pending') {
-        return `<div class="ivyph-ig-blank">${icon('spinner', 'ivyph-spin')}<span>загружается…</span></div>`;
+        return `<div class="ivyph-ig-blank">${icon('spinner', 'ivyph-spin')}<span>loading…</span></div>`;
     }
     return `<div class="ivyph-ig-blank">
         <span>${esc(p.prompt ? p.prompt.slice(0, 90) : 'нет фото')}</span>
-        ${p.prompt ? `<button class="ivyph-mini" data-iggen="${esc(p.id)}">${icon('wand')} Сгенерировать</button>` : ''}
+        ${p.prompt ? `<button class="ivyph-ig-btn" data-iggen="${esc(p.id)}">Сгенерировать</button>` : ''}
     </div>`;
 }
 
@@ -4654,37 +4684,41 @@ function igComments(p) {
 
     return `<div class="ivyph-ig-comments">
         ${more > 0 ? `<button class="ivyph-ig-more" data-igmore="${esc(p.id)}">View all ${p.comments.length} comments</button>` : ''}
-        ${shown.map(x => `<div class="ivyph-ig-comment${x.mine ? ' ivyph-ig-mine' : ''}">
-            <b>${esc(x.handle)}</b> ${esc(x.text)}
+        ${shown.map(x => `<div class="ivyph-ig-comment">
+            <button class="ivyph-ig-uname" ${x.contact ? `data-igprofile="${esc(x.contact)}"` : ''}>${esc(x.handle)}</button>
+            ${esc(x.text)}
         </div>`).join('')}
     </div>`;
 }
 
 function igCard(p) {
-    return `<article class="ivyph-ig-post" data-post="${esc(p.id)}">
-        <header class="ivyph-ig-head">
+    return `<article class="ivyph-ig-post">
+        <header class="ivyph-ig-phead">
             <button class="ivyph-ig-author" data-igprofile="${esc(p.author)}">
                 ${igAvatar(p.author)}<b>${esc(igWho(p.author))}</b>
             </button>
-            <button class="ivyph-more" data-igdel="${esc(p.id)}" title="Удалить">${icon('trash')}</button>
+            <span class="ivyph-ig-time">${esc(igStamp(p.ts))}</span>
+            <button class="ivyph-ig-del" data-igdel="${esc(p.id)}" title="Удалить">${icon('trash')}</button>
         </header>
 
         ${igMedia(p)}
 
-        <div class="ivyph-ig-actions">
-            <button class="ivyph-ig-like${p.liked ? ' ivyph-ig-liked' : ''}" data-iglike="${esc(p.id)}">
+        <div class="ivyph-ig-bar2">
+            <button class="ivyph-ig-heart${p.liked ? ' ivyph-ig-liked' : ''}" data-iglike="${esc(p.id)}">
                 ${p.liked ? '♥' : '♡'}
             </button>
             <span class="ivyph-ig-likes">${p.likes} like${p.likes === 1 ? '' : 's'}</span>
-            <span class="ivyph-ig-time">${esc(igStamp(p.ts))}</span>
         </div>
 
-        ${p.caption ? `<div class="ivyph-ig-caption"><b>${esc(igWho(p.author))}</b> ${esc(p.caption)}</div>` : ''}
+        ${p.caption ? `<div class="ivyph-ig-caption">
+            <button class="ivyph-ig-uname" data-igprofile="${esc(p.author)}">${esc(igWho(p.author))}</button>
+            ${esc(p.caption)}
+        </div>` : ''}
         ${igComments(p)}
 
         <div class="ivyph-ig-addc">
             <input class="ivyph-ig-cinput" data-igcomment="${esc(p.id)}" placeholder="Add a comment…" maxlength="200">
-            <button class="ivyph-mini" data-igsend="${esc(p.id)}">Post</button>
+            <button class="ivyph-ig-btn" data-igsend="${esc(p.id)}">Post</button>
         </div>
     </article>`;
 }
@@ -4693,77 +4727,117 @@ function renderIgFeed() {
     const g = ig();
     const shown = g.posts.filter(p => p.author === 'me' || g.follows[p.author]);
 
-    const suggest = Object.values(store().contacts)
-        .filter(c => !g.follows[c.key])
-        .slice(0, 6);
-
-    return `${igTopBar('Instagram', '')}
-    <div class="ivyph-ig-feed">
-        <div class="ivyph-ig-mybar">
-            <button class="ivyph-ig-author" data-igprofile="me">${igAvatar('me')}<b>${esc(igHandle())}</b></button>
-            <span class="ivyph-ig-stat">${g.followers} followers</span>
-        </div>
-
-        ${g.notes.length ? `<div class="ivyph-ig-notes">${g.notes.slice(0, 3).map(n =>
-            `<div class="ivyph-ig-note">${esc(n.text)}</div>`).join('')}</div>` : ''}
-
-        ${shown.length ? shown.map(igCard).join('') : `<div class="ivyph-empty">
-            Пока пусто. Опубликуй фото или подпишись на кого-нибудь.
+    return `${igBar('INSTAGRAM', '')}
+    <div class="ivyph-ig-body">
+        ${shown.length ? shown.map(igCard).join('') : `<div class="ivyph-ig-nothing">
+            <b>Пока пусто</b>
+            <span>Опубликуй фото или загляни в Popular — там все, на кого можно подписаться.</span>
         </div>`}
+    </div>
+    ${igTabs('ig')}`;
+}
 
-        ${suggest.length ? `<div class="ivyph-ig-suggest">
-            <h4>Suggested for you</h4>
-            ${suggest.map(c => `<div class="ivyph-ig-srow">
-                <button class="ivyph-ig-author" data-igprofile="${esc(c.key)}">
-                    ${igAvatar(c.key)}<b>${esc(igNick(c))}</b>
-                </button>
-                <button class="ivyph-mini" data-igfollow="${esc(c.key)}">Follow</button>
-            </div>`).join('')}
+// Popular: список всех людей и общая витрина снимков. Именно отсюда можно
+// попасть на чужую страницу — раньше подписанные контакты просто исчезали
+// из подсказок, и зайти к ним было некуда.
+function renderIgExplore() {
+    const g = ig();
+    const people = Object.values(store().contacts);
+    const shots = g.posts.filter(p => p.image);
+
+    return `${igBar('POPULAR', '')}
+    <div class="ivyph-ig-body">
+        ${shots.length ? `<div class="ivyph-ig-grid">
+            ${shots.slice(0, 18).map(p => `<button class="ivyph-ig-cell" data-igprofile="${esc(p.author)}">
+                <img src="${esc(p.image)}" alt="">
+            </button>`).join('')}
         </div>` : ''}
-    </div>`;
+
+        <div class="ivyph-ig-people">
+            <h4>People</h4>
+            ${people.length ? people.map(c => `<div class="ivyph-ig-prow">
+                <button class="ivyph-ig-author" data-igprofile="${esc(c.key)}">
+                    ${igAvatar(c.key)}
+                    <span class="ivyph-ig-pnames">
+                        <b>${esc(igNick(c))}</b>
+                        <small>${esc(c.label || c.name)}</small>
+                    </span>
+                </button>
+                <button class="ivyph-ig-follow${g.follows[c.key] ? ' ivyph-ig-following' : ''}"
+                    data-igfollow="${esc(c.key)}">${g.follows[c.key] ? '✓ Following' : 'Follow'}</button>
+            </div>`).join('') : '<div class="ivyph-ig-nothing"><span>Контактов пока нет.</span></div>'}
+        </div>
+    </div>
+    ${igTabs('igexplore')}`;
 }
 
 function renderIgProfile(key) {
     const g = ig();
     const mine = key === 'me';
     const c = mine ? null : contact(key);
-    if (!mine && !c) return renderIgFeed();
+    if (!mine && !c) return renderIgExplore();
 
     const posts = g.posts.filter(p => p.author === key);
-    const followers = mine ? g.followers : Math.round(180 + (String(key).length * 137) % 3200);
+    // У контактов числа должны быть стабильными между перерисовками,
+    // поэтому берём их из имени, а не из Math.random().
+    const seed = [...String(key)].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+    const followers = mine ? g.followers : 180 + (seed * 137) % 3200;
+    const following = mine ? igFollowing().length : 60 + (seed * 41) % 400;
 
-    return `${igTopBar(igWho(key), 'ig')}
-    <div class="ivyph-ig-profile">
-        <div class="ivyph-ig-phead">
-            ${igAvatar(key)}
-            <div class="ivyph-ig-pstats">
-                <div><b>${posts.length}</b><span>posts</span></div>
-                <div><b>${followers}</b><span>followers</span></div>
-                <div><b>${mine ? igFollowing().length : Math.round(followers * 0.4)}</b><span>following</span></div>
+    return `${igBar(igWho(key).toUpperCase(), mine ? 'ig' : 'igexplore')}
+    <div class="ivyph-ig-body">
+        <div class="ivyph-ig-prof">
+            <div class="ivyph-ig-profrow">
+                ${igAvatar(key, 'ivyph-ig-ava-big')}
+                <div class="ivyph-ig-stats">
+                    <div><b>${posts.length}</b><span>photos</span></div>
+                    <div><b>${followers}</b><span>followers</span></div>
+                    <div><b>${following}</b><span>following</span></div>
+                </div>
+            </div>
+
+            ${mine
+                ? `<label class="ivyph-ig-edit">Ник
+                       <input data-ighandle value="${esc(igHandle())}" placeholder="username" maxlength="30">
+                   </label>`
+                : `<button class="ivyph-ig-follow ivyph-ig-follow-wide${g.follows[key] ? ' ivyph-ig-following' : ''}"
+                       data-igfollow="${esc(key)}">${g.follows[key] ? '✓ Following' : 'Follow'}</button>`}
+
+            <div class="ivyph-ig-bio">
+                <b>${esc(mine ? (getContext()?.name1 || 'Me') : (c.label || c.name))}</b>
+                ${c?.lore ? `<span>${esc(c.lore)}</span>` : ''}
             </div>
         </div>
 
-        ${mine
-            ? `<label class="ivyph-ig-bio">Ник
-                <input data-ighandle value="${esc(igHandle())}" placeholder="username" maxlength="30">
-               </label>`
-            : `<div class="ivyph-ig-bioline">${esc(c.lore || '')}</div>
-               <button class="ivyph-mini ${g.follows[key] ? 'ivyph-mini-off' : ''}" data-igfollow="${esc(key)}">
-                   ${g.follows[key] ? 'Following' : 'Follow'}
-               </button>`}
+        <div class="ivyph-ig-gridhead">${icon('image')}</div>
 
-        <div class="ivyph-ig-grid">
-            ${posts.length ? posts.map(p => `<button class="ivyph-ig-cell" data-igopen="${esc(p.id)}">
+        ${posts.length ? `<div class="ivyph-ig-grid">
+            ${posts.map(p => `<button class="ivyph-ig-cell" data-igopen="${esc(p.id)}">
                 ${p.image ? `<img src="${esc(p.image)}" alt="">` : `<span>${icon('image')}</span>`}
-            </button>`).join('') : '<div class="ivyph-empty">Нет публикаций</div>'}
-        </div>
-    </div>`;
+            </button>`).join('')}
+        </div>` : `<div class="ivyph-ig-nothing"><span>Нет публикаций</span></div>`}
+    </div>
+    ${igTabs(mine ? 'igme' : '')}`;
+}
+
+function renderIgNews() {
+    const g = ig();
+    return `${igBar('NEWS', '')}
+    <div class="ivyph-ig-body">
+        ${g.notes.length ? `<div class="ivyph-ig-news">
+            ${g.notes.map(n => `<div class="ivyph-ig-newsrow">
+                <span>${esc(n.text)}</span>
+                <small>${esc(igStamp(n.ts))}</small>
+            </div>`).join('')}
+        </div>` : `<div class="ivyph-ig-nothing"><span>Здесь появятся подписки, лайки и отписки.</span></div>`}
+    </div>
+    ${igTabs('ignews')}`;
 }
 
 function renderIgNew() {
     const d = live.igDraft || {};
-    return `${igTopBar('New post', 'ig')}
-    <div class="ivyph-ig-new">
+    return `${igBar('NEW POST', 'ig')}
+    <div class="ivyph-ig-body ivyph-ig-new">
         <label>Что на фото — по-английски, для генерации
             <textarea data-igprompt rows="3" placeholder="rain on the porch steps, ferns, grey afternoon">${esc(d.prompt || '')}</textarea>
         </label>
@@ -4772,11 +4846,12 @@ function renderIgNew() {
         </label>
 
         <div class="ivyph-ig-newrow">
-            <button class="ivyph-mini" data-igpick>${icon('image')} Из галереи</button>
-            <button class="ivyph-mini" data-igpublish>${icon('wand')} Опубликовать</button>
+            <button class="ivyph-ig-btn ivyph-ig-btn-wide" data-igpick>Из галереи</button>
+            <button class="ivyph-ig-btn ivyph-ig-btn-wide" data-igpublish>Опубликовать</button>
         </div>
-        <p class="ivyph-hint">С галереей описание не нужно. Без файла фото сгенерируется по описанию.</p>
-    </div>`;
+        <p class="ivyph-ig-hint">С галереей описание не нужно. Без файла фото сгенерируется по описанию.</p>
+    </div>
+    ${igTabs('')}`;
 }
 
 // ---------------------------------------------------------------- events
