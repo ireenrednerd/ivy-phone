@@ -864,10 +864,7 @@ const CSS_TEXT = `/* IVY Phone — интерфейс телефона для р
 .ivyph-more:hover { opacity: 1 !important; background: rgba(127, 139, 149, .18); }
 
 @media (hover: none) {
-    .ivyph-more {
-        opacity: .6;
-        background: rgba(127, 139, 149, .14);
-    }
+    .ivyph-more { opacity: .55; background: transparent; }
 }
 .ivyph-more .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
 
@@ -941,10 +938,12 @@ const CSS_TEXT = `/* IVY Phone — интерфейс телефона для р
 /* Над картинкой кнопка нуждается в подложке, иначе теряется на снимке. */
 .ivyph-bub:has(.ivyph-photo) .ivyph-more,
 .ivyph-bub:has(.ivyph-shot) .ivyph-more {
-    background: rgba(10, 14, 18, .55);
+    background: rgba(10, 14, 18, .5);
     color: #fff;
-    opacity: .8;
+    opacity: .85;
 }
+
+.ivyph-shot-desc i { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
 .ivyph-picker {
     align-self: center;
@@ -1890,10 +1889,11 @@ async function generatePhoto(ev) {
         .trim();
 
     const who = ev.dir === 'in' ? capitalize(c?.name || ev.from) : '';
-    const cam = CAMERAS[s.camera]?.tech || '';
-    // Техника съёмки — в начало: начало промпта модель отрабатывает сильнее,
-    // иначе кадр выходит вылизанным, как с зеркалки.
-    const prompt = [cam, who, c?.anchor, c?.clothes, cleanPrompt].filter(Boolean).join(', ');
+    // Качество упоминаем дважды — в начале и в конце. Модели генерации тянут
+    // к красивой картинке, и одного упоминания в середине они не слышат.
+    const cam = CAMERAS[s.camera] || CAMERAS.none;
+    const prompt = [cam.tech, who, c?.anchor, c?.clothes, cleanPrompt, cam.tail]
+        .filter(Boolean).join(', ');
 
     ev.state = 'pending';
     render();
@@ -1920,32 +1920,35 @@ async function generatePhoto(ev) {
 // Профили камеры. Задача — чтобы фото выглядело снятым самим персонажем
 // на его телефон, а не студийным кадром со стороны.
 const CAMERAS = {
-    none: { label: 'Без обработки', tech: '' },
+    none: { label: 'Без обработки', tech: '', tail: '' },
     modern: {
         label: 'Современный смартфон',
-        tech: 'casual smartphone snapshot, handheld, slightly off-centre framing, '
-            + 'ordinary available light, no professional lighting, no cinematic grading',
+        tech: 'candid smartphone snapshot',
+        tail: 'ordinary available light, slightly careless framing, no professional lighting, '
+            + 'no colour grading',
     },
     iphone4: {
         label: 'Телефон 2010-х',
-        tech: 'amateur photo taken on a 2011 phone camera, tiny sensor, 5 megapixels, '
-            + 'flat low dynamic range, blown-out highlights and murky shadows, '
-            + 'slightly soft unsharp detail, cool washed-out colours, '
-            + 'harsh direct flash if indoors or at night, plain handheld framing, '
-            + 'no HDR, no bokeh, no professional lighting, no cinematic colour grading, '
-            + 'not a DSLR photo, not a studio shot',
+        tech: 'low quality amateur snapshot taken on a cheap 2011 phone camera',
+        tail: 'tiny 5MP sensor, flat washed-out colours, crushed murky shadows, blown-out highlights, '
+            + 'soft unsharp mushy detail, visible compression, harsh direct on-camera flash, '
+            + 'crooked handheld framing, mediocre exposure, '
+            + 'NOT a professional photo, NOT a DSLR, no HDR, no bokeh, no studio lighting, '
+            + 'no colour grading, no retouching, unflattering and ordinary',
     },
     oldphone: {
         label: 'Старый кнопочный',
-        tech: 'photo taken on a mid-2000s camera phone, very low resolution, '
-            + 'soft mushy detail, flat dull colours, dim underexposed, '
-            + 'plain snapshot framing, no HDR, no bokeh, not a DSLR photo',
+        tech: 'very low quality photo from a mid-2000s VGA camera phone',
+        tail: 'extremely low resolution, smeared mushy detail, heavy compression artifacts, '
+            + 'dull greyish colours, dim underexposed, motion blur, crooked framing, '
+            + 'NOT a professional photo, NOT a DSLR, no HDR, no bokeh, no retouching, '
+            + 'looks like a bad phone picture from 2006',
     },
     film: {
         label: 'Плёночная мыльница',
-        tech: 'photo taken on a point-and-shoot film camera, direct flash, '
-            + 'warm faded colours, soft focus, plain snapshot framing, '
-            + 'no HDR, no cinematic grading',
+        tech: 'snapshot from a cheap point-and-shoot film camera',
+        tail: 'direct flash, warm faded colours, soft focus, slight vignetting, crooked framing, '
+            + 'no HDR, no colour grading, amateur',
     },
 };
 
@@ -1966,20 +1969,28 @@ const SHOT_KINDS = {
 
 // Просьба может прямо называть предмет — тогда снимаем его, а не лицо.
 function pickShot(request, selfieBias) {
-    const r = String(request || '').toLowerCase();
+    const r = String(request || '').toLowerCase().trim();
 
-    const aboutThem = /(you|yourself|your face|selfie|себя|тебя|своё лицо|селфи)/i.test(r);
-    const namesThing = /\b(of|with)\s+(the\s+|your\s+|a\s+)?[a-z]{3,}/i.test(r)
-        || /(ключ|фото\s+\S+|снимок\s+\S+|покажи\s+\S+|room|keys|car|dog|window|street|desk|bed|food)/i.test(r);
+    // Просьба про них самих: строго по отдельным словам, иначе «your garden»
+    // ловилось как «you» и всё превращалось в селфи.
+    const aboutThem = /\b(you|yourself|selfie|себя|тебя|селфи)\b/.test(r)
+        || /\byour\s+(face|hair|outfit|smile|eyes)\b/.test(r)
+        || /(сво[её]\s+лицо|как\s+ты\s+выглядишь)/.test(r);
 
-    if (aboutThem) return Math.random() < 0.72 ? 'selfie' : 'mirror';
-    if (namesThing && !aboutThem) return 'subject';
+    // Просьба про конкретный предмет или место: «show me your shoes», «фото сада»
+    const thing = r.match(/\b(?:show me|send me|see)\s+(?:your\s+|the\s+|a\s+)?([a-z][a-z\s]{2,30})/)
+        || r.match(/(?:покажи|пришли|скинь)\s+(?:мне\s+)?(?:сво[йюяё]\s+)?([а-яё][а-яё\s]{2,30})/);
+
+    const named = thing && !/^(you|yourself|себя|тебя)\b/.test(thing[1].trim());
+
+    if (named && !aboutThem) return 'subject';
+    if (aboutThem) return Math.random() < 0.7 ? 'selfie' : 'mirror';
 
     const roll = Math.random() * 100;
-    const bias = Number(selfieBias);
+    const bias = Number(selfieBias) || 55;
     if (roll < bias * 0.75) return 'selfie';
     if (roll < bias) return 'mirror';
-    if (roll < bias + (100 - bias) * 0.55) return 'around';
+    if (roll < bias + (100 - bias) * 0.5) return 'around';
     return 'object';
 }
 
@@ -2478,6 +2489,9 @@ const ICONS = {
     wifi: '<path d="M1.8 8.4a15.5 15.5 0 0 1 20.4 0" stroke-width="2"/><path d="M5.4 12.2a10.3 10.3 0 0 1 13.2 0" stroke-width="2"/><path d="M8.9 15.9a5.2 5.2 0 0 1 6.2 0" stroke-width="2"/><circle cx="12" cy="19.6" r="1.3" fill="currentColor" stroke="none"/>',
     battery: '<rect x="1.5" y="7.5" width="17.5" height="9" rx="2.6" stroke-width="1.6"/><path d="M21.3 10.6v2.8" stroke-width="2.2"/><rect x="3.4" y="9.4" width="10.5" height="5.2" rx="1.4" fill="currentColor" stroke="none"/>',
     camera: '<path d="M3 8.4h3.6L8.2 6h7.6l1.6 2.4H21v10H3Z"/><circle cx="12" cy="13.2" r="3.4"/>',
+    dots: '<circle cx="12" cy="5.2" r="1.8" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="12" cy="18.8" r="1.8" fill="currentColor" stroke="none"/>',
+    expand: '<polyline points="9,3.8 3.8,3.8 3.8,9"/><polyline points="15,3.8 20.2,3.8 20.2,9"/><polyline points="9,20.2 3.8,20.2 3.8,15"/><polyline points="15,20.2 20.2,20.2 20.2,15"/>',
+    save: '<path d="M12 3.8v11.4"/><polyline points="7.6,10.8 12,15.3 16.4,10.8"/><path d="M4.6 17.6v2h14.8v-2"/>',
     image: '<rect x="3" y="4.5" width="18" height="15" rx="2.4"/><circle cx="8.6" cy="9.8" r="1.7"/><path d="M3.4 17.2 8.9 12l4 3.6 3.2-2.6 4.5 4.2"/>',
     refresh: '<path d="M20.2 11.4a8.3 8.3 0 1 1-2.4-5.6"/><polyline points="20.6,3.6 20.6,9 15.2,9"/>',
     trash: '<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.8h5v1.7"/><path d="M6.4 6.5 7.3 20h9.4l.9-13.5"/><path d="M10.3 10v6M13.7 10v6"/>',
@@ -2930,8 +2944,13 @@ function renderThread(k) {
             } else if (e.state === 'pending') {
                 inner = `<span class="ivyph-shot ivyph-shot-busy">${icon('spinner', 'ivyph-spin')} Generating…</span>`;
             } else {
+                // Показываем короткую подпись, а не весь технический промпт:
+                // раньше в пузырь вываливалось описание внешности целиком.
+                const short = String(e.prompt || '')
+                    .replace(/^[^,]*(?:snapshot|camera phone|photo)[^,]*,\s*/i, '')
+                    .split(',').slice(0, 3).join(',').trim();
                 inner = `<span class="ivyph-shot">
-                    <span class="ivyph-shot-desc">${icon('image')}<i>${esc(e.prompt || 'no description')}</i></span>
+                    <span class="ivyph-shot-desc">${icon('image')}<i>${esc(short || 'фото')}</i></span>
                     <button class="ivyph-shot-btn" data-gen="${esc(e.id)}">
                         ${e.state === 'error' ? icon('refresh') + ' Retry' : icon('image') + ' Generate'}
                     </button>
@@ -3650,6 +3669,10 @@ async function deliverPhoto(c, request, sentEvent) {
             `do not promise it for later, do not answer in words.`,
             `Describe the photo they actually take, in English, as an image prompt.`,
             `Shot type for this photo: ${SHOT_KINDS[shot]}`,
+            shot === 'subject'
+                ? `The owner asked to see a specific thing. That thing must be the subject of the photo, `
+                    + `clearly visible and filling the frame. Do not send a portrait instead.`
+                : '',
             SHOT_RULE,
             `Framing only: subject, place, light, time of day, angle, what is in frame.`,
             `Keep it plain and ordinary. Do not add artistic words like cinematic, dramatic,`,
@@ -3693,7 +3716,10 @@ async function askForPhoto(k) {
     render();
 
     const scene = sceneContext(6);
-    const shot = await askModel([
+    const shot = pickShot('', settings().selfieBias);
+    logDebug(`кадр (кнопка камеры): ${shot}`);
+
+    const описание = await askModel([
         cardContext(),
         await lorebookContext(`${scene} ${c.name}`),
         `Current scene:\n${scene}`,
@@ -3714,7 +3740,7 @@ async function askForPhoto(k) {
 
     live.typing = '';
 
-    let prompt = stripPanels(shot).replace(/^["']|["']$/g, '').split('\n')[0].trim();
+    let prompt = stripPanels(описание).replace(/^["']|["']$/g, '').split('\n')[0].trim();
     if (!prompt || /HEADER|CROSSROADS|COMMENTS/i.test(prompt)) {
         logDebug('модель вернула панель вместо кадра');
         render();

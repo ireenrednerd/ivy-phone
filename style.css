@@ -853,10 +853,7 @@
 .ivyph-more:hover { opacity: 1 !important; background: rgba(127, 139, 149, .18); }
 
 @media (hover: none) {
-    .ivyph-more {
-        opacity: .6;
-        background: rgba(127, 139, 149, .14);
-    }
+    .ivyph-more { opacity: .55; background: transparent; }
 }
 .ivyph-more .ivyph-i { width: 14px; height: 14px; vertical-align: 0; }
 
@@ -930,10 +927,12 @@
 /* Над картинкой кнопка нуждается в подложке, иначе теряется на снимке. */
 .ivyph-bub:has(.ivyph-photo) .ivyph-more,
 .ivyph-bub:has(.ivyph-shot) .ivyph-more {
-    background: rgba(10, 14, 18, .55);
+    background: rgba(10, 14, 18, .5);
     color: #fff;
-    opacity: .8;
+    opacity: .85;
 }
+
+.ivyph-shot-desc i { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
 .ivyph-picker {
     align-self: center;
