@@ -1495,6 +1495,7 @@ const DEFAULTS = {
     proactiveChance: 12,
     igPostChance: 10,
     igEveryMin: 0,
+    igCrowdModel: true,
     strangerChance: 15,
     carrier: 'AT&T',
     ownerLabel: 'Я',
@@ -4442,6 +4443,13 @@ function ig() {
     if (!Array.isArray(g.notes)) g.notes = []; // лента уведомлений
     if (!g.stats) g.stats = {};              // ручные счётчики по персонажам
     if (!g.bios) g.bios = {};                // имя и описание профиля
+
+    // Состояния, зависшие с прошлой сессии, снимаем: иначе пост навсегда
+    // остаётся с крутящимся спиннером вместо кнопки.
+    if (!g.unstuck) {
+        g.posts.forEach(p => { if (p.state === 'pending') p.state = 'idle'; });
+        g.unstuck = true;
+    }
     return g;
 }
 
@@ -4661,7 +4669,11 @@ function igNote(text) {
 // Картинка для поста. generateViaTag работает с любым объектом, у которого
 // есть поля image и state, поэтому переиспользуем её как есть.
 async function igGenerate(post) {
-    if (!post || post.state === 'pending') return;
+    if (!post) return;
+    // Если страницу перезагрузили посреди генерации, состояние осталось
+    // «pending» в сохранённых данных — и кнопка больше никогда не срабатывала.
+    if (post.state === 'pending' && Date.now() - (post.startedAt || 0) < 200000) return;
+    post.startedAt = Date.now();
     const s = settings();
     const c = post.author === 'me' ? null : contact(post.author);
 
@@ -4692,12 +4704,11 @@ async function igGenerate(post) {
         const url = extractUrl(await runSlash(s.imageCommand.replace('{{prompt}}', prompt)));
         if (url) { post.image = url; post.state = 'done'; ok = true; }
     }
-    if (ok && post.image) {
-        // Ленте нужен квадрат: генератор отдаёт 3:4, обрезаем по центру здесь.
-        const square = await igSquareUrl(post.image);
-        if (square) post.image = square;
-    }
-    if (!ok) { post.state = 'error'; logDebug(`пост без картинки: ${prompt.slice(0, 50)}`); }
+    // ВАЖНО: сгенерированную картинку НЕ перегоняем в base64. Лента лежит в
+    // настройках расширения, и каждый такой снимок весил бы сотни килобайт —
+    // settings пухли, сохранение подвисало, и повторная генерация срывалась.
+    // Квадрат даёт вёрстка: aspect-ratio + object-fit в стилях.
+    if (!ok) { post.state = 'error'; logDebug(`пост без картинки: ${prompt.slice(0, 60)}`); }
     igSave();
     render();
 }
@@ -4708,6 +4719,26 @@ async function igGenerate(post) {
 
 function igReach() {
     return Math.max(12, igStats('me').followers);
+}
+
+// Берём следующую реплику: сперва из сочинённых, иначе запасной набор,
+// и в обоих случаях не повторяем то, что под постом уже есть.
+function igNextComment(post) {
+    const usedText = new Set(post.comments.map(c => String(c.text).toLowerCase()));
+    const usedName = new Set(post.comments.map(c => c.handle));
+
+    while (Array.isArray(post.queue) && post.queue.length) {
+        const next = post.queue.shift();
+        if (!usedText.has(next.text.toLowerCase()) && !usedName.has(next.handle)) return next;
+    }
+
+    for (let i = 0; i < 25; i++) {
+        const text = igComment(post);
+        if (!usedText.has(text.toLowerCase())) {
+            return { handle: igStranger([...usedName]), text };
+        }
+    }
+    return null;
 }
 
 function igWave(postId, wave) {
@@ -4723,16 +4754,27 @@ function igWave(postId, wave) {
     }
 
     const used = post.comments.map(x => x.handle);
+    const said = new Set(post.comments.map(x => String(x.text).toLowerCase()));
     const many = Math.random() < 0.55 ? 1 : (Math.random() < 0.7 ? 2 : 0);
+
     for (let i = 0; i < many; i++) {
-        const handle = igStranger(used);
+        let handle = '';
+        let text = '';
+
+        // igNextComment сам берёт сочинённую реплику, а если очередь пуста —
+        // заготовку, и в обоих случаях следит, чтобы ни текст, ни ник не
+        // повторились под этим постом.
+        const next = igNextComment(post);
+        if (next) { handle = next.handle; text = next.text; }
+
+        if (!text || said.has(text.toLowerCase()) || used.includes(handle)) continue;
         used.push(handle);
+        said.add(text.toLowerCase());
+
         post.comments.push({
             id: `c${ig().seq++}`,
             handle,
-            text: (wave === 0 && post.comments.length === 0 && Math.random() < 0.12)
-                ? igPick(IG_FIRST_COMMENTS)
-                : igComment(post),
+            text,
             ts: Date.now(),
             mine: false,
         });
@@ -4758,11 +4800,60 @@ function igWave(postId, wave) {
 
 // Разносим отклик во времени — лента должна оживать постепенно, а не
 // заполняться целиком в момент публикации.
+// Толпа под постом: ники и реплики сочиняет модель, ОДНИМ запросом на пост.
+// Заготовки остаются только страховкой на случай сбоя — из-за них под фото
+// с собакой дважды подряд появлялось «best boy».
+async function igCrowdFill(post) {
+    if (!settings().igCrowdModel) return;
+
+    const raw = await askModelRaw([
+        `A photo was just posted on Instagram in 2012.`,
+        post.prompt ? `What is in the photo: ${post.prompt}` : '',
+        post.caption ? `The caption under it: ${post.caption}` : '',
+        `Write 7 comments from ordinary American strangers who follow this account.`,
+        `One per line, in this exact format:`,
+        `username :: comment`,
+        `Usernames are lowercase 2011-era handles — first names, numbers, dots, underscores.`,
+        `Every username different, every comment different.`,
+        `Comments react to what is ACTUALLY in this photo and to the mood of the caption:`,
+        `if it is sad or heavy, they offer support instead of praise; if it is food they talk`,
+        `about the food; if it is a pet they talk about the animal.`,
+        `Casual texting voice, lowercase, under 50 characters each. Some with emoji, some without.`,
+        `No numbering, no quotes, no explanation, nothing but the 7 lines.`,
+    ].filter(Boolean).join('\n\n'));
+
+    const seen = new Set(post.comments.map(c => String(c.text).toLowerCase()));
+    const names = new Set(post.comments.map(c => c.handle));
+    const queue = [];
+
+    for (const line of String(raw || '').split('\n')) {
+        const m = line.match(/^\s*[-*\d.)\s]*([@\w.]{3,30})\s*(?:::|\||\u2014|-)\s*(.+)$/);
+        if (!m) continue;
+        const handle = igSlug(m[1]).slice(0, 30);
+        const text = m[2].replace(/^["']|["']$/g, '').trim().slice(0, 120);
+        if (!handle || !text) continue;
+        if (names.has(handle) || seen.has(text.toLowerCase())) continue;
+        names.add(handle);
+        seen.add(text.toLowerCase());
+        queue.push({ handle, text });
+    }
+
+    if (queue.length) post.queue = queue;
+    else logDebug(`толпа не разобрана, беру заготовки. Ответ: ${String(raw).slice(0, 120) || '—'}`);
+}
+
 function igEngage(post) {
     if (!post || post.engaged) return;
     post.engaged = true;
     const id = post.id;
-    [900, 4200, 11000, 26000].forEach((ms, i) => setTimeout(() => igWave(id, i), ms));
+
+    // Реплики набираем заранее, до первой волны: один запрос, дальше волны
+    // просто разбирают очередь и в модель больше не ходят.
+    igCrowdFill(post)
+        .catch(err => logDebug(`толпа не сгенерирована: ${err?.message || err}`))
+        .finally(() => {
+            [900, 4200, 11000, 26000].forEach((ms, i) => setTimeout(() => igWave(id, i), ms));
+        });
 }
 
 // Комментарий от контакта пишет модель — только он должен звучать голосом
@@ -5155,7 +5246,10 @@ function igMedia(p) {
         <div class="ivyph-ig-blurbg"></div>
         <div class="ivyph-ig-blurin">
             <span class="ivyph-ig-blurtext">${esc(p.prompt ? p.prompt.slice(0, 160) : 'нет описания кадра')}</span>
-            ${p.prompt ? `<button class="ivyph-ig-btn" data-iggen="${esc(p.id)}">Сгенерировать фото</button>` : ''}
+            ${p.state === 'error' ? '<span class="ivyph-ig-failed">не получилось — смотри отчёт в настройках</span>' : ''}
+            ${p.prompt ? `<button class="ivyph-ig-btn" data-iggen="${esc(p.id)}">
+                ${p.state === 'error' ? 'Попробовать снова' : 'Сгенерировать фото'}
+            </button>` : ''}
         </div>
     </div>`;
 }
@@ -5516,6 +5610,10 @@ function buildSettingsPanel() {
                 <label>Из них незнакомый номер (%)<input class="text_pole" type="number" data-s="strangerChance"></label>
                 <label>Шанс поста в Инстаграме за ход (%)<input class="text_pole" type="number" data-s="igPostChance"></label>
                 <label>Пост в Инстаграме каждые N минут (0 — выкл)<input class="text_pole" type="number" min="0" data-s="igEveryMin"></label>
+                <label class="ivyph-check">
+                    <input type="checkbox" data-s="igCrowdModel">
+                    <span>Комментарии подписчиков сочиняет модель (иначе заготовки)</span>
+                </label>
 
                 <hr>
                 <b>Ответы</b>

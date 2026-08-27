@@ -1989,3 +1989,11 @@ body.ivyph-mounted .ivyph-launcher { display: none !important; }
     background: #fff;
     color: #23262a;
 }
+
+.ivyph-ig-failed {
+    font-size: 11px;
+    color: #a8443c;
+    background: rgba(255, 255, 255, .7);
+    border-radius: 3px;
+    padding: 2px 7px;
+}
