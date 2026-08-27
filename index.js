@@ -1617,6 +1617,7 @@ function addEvent(data) {
         reaction: '',
         text: '',
         prompt: '',
+        shot: '',
         image: '',
         state: '',
         status: '',
@@ -1899,11 +1900,20 @@ async function generatePhoto(ev) {
         .join(' ')
         .trim();
 
-    const who = ev.dir === 'in' ? capitalize(c?.name || ev.from) : '';
-    // Качество упоминаем дважды — в начале и в конце. Модели генерации тянут
-    // к красивой картинке, и одного упоминания в середине они не слышат.
+    // Имя в промпте заставляет расширение генерации прикрепить портретный
+    // референс, а картинка-образец всегда перевешивает текст. Поэтому для
+    // снимков предметов и мест имя и внешность НЕ упоминаем — иначе вместо
+    // ужина рисуется лицо владельца телефона.
+    const facePhoto = !ev.shot || ev.shot === 'selfie' || ev.shot === 'mirror';
+
+    const who = (ev.dir === 'in' && facePhoto) ? capitalize(c?.name || ev.from) : '';
+    const look = facePhoto ? [c?.anchor, c?.clothes] : [];
+    const noFace = facePhoto ? '' : 'no people in frame, nobody visible, no face, no portrait';
+
+    // Качество упоминаем дважды — в начале и в конце: модели тянут к красивой
+    // картинке и одного упоминания в середине не слышат.
     const cam = CAMERAS[s.camera] || CAMERAS.none;
-    const prompt = [cam.tech, who, c?.anchor, c?.clothes, cleanPrompt, cam.tail]
+    const prompt = [cam.tech, who, ...look, cleanPrompt, noFace, cam.tail]
         .filter(Boolean).join(', ');
 
     ev.state = 'pending';
@@ -2987,7 +2997,7 @@ function renderThread(k) {
                 tools.push(`<button data-open-img="${esc(e.id)}">${icon('expand')} Открыть</button>`);
                 tools.push(`<button data-save-img="${esc(e.id)}">${icon('save')} Сохранить</button>`);
             }
-            tools.push(`<button data-gen="${esc(e.id)}">${icon('refresh')} Ещё раз</button>`);
+        tools.push(`<button data-gen="${esc(e.id)}">${icon('refresh')} Ещё раз</button>`);
         } else {
             if (e.dir === 'in') tools.push(`<button data-regen="${esc(e.id)}">${icon('refresh')} Переписать</button>`);
             tools.push(`<button data-edit-msg="${esc(e.id)}">Изменить</button>`);
@@ -3693,7 +3703,7 @@ async function deliverPhoto(c, request, sentEvent) {
 
         const ev = addEvent({
             mesId: null, type: 'photo', dir: 'in', from: c.name,
-            prompt, text: '', state: 'idle',
+            prompt, shot, text: '', state: 'idle',
         });
         save();
         render();
@@ -3750,7 +3760,7 @@ async function askForPhoto(k) {
 
     const ev = addEvent({
         mesId: null, type: 'photo', dir: 'in', from: c.name,
-        prompt, text: '', state: 'idle',
+        prompt, shot, text: '', state: 'idle',
     });
     save();
     render();
