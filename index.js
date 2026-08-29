@@ -1496,6 +1496,7 @@ const DEFAULTS = {
     igPostChance: 10,
     igEveryMin: 0,
     igCrowdModel: true,
+    photoRealCaption: true,
     strangerChance: 15,
     carrier: 'AT&T',
     ownerLabel: 'Я',
@@ -1524,6 +1525,59 @@ function settings() {
 // Всё состояние телефона живёт в chat_metadata → своя история у каждого чата,
 // переживает перезагрузку, уезжает вместе с экспортом чата.
 
+// Постоянное хранилище персонажа: контакты, их внешность и группы живут
+// здесь (в настройках расширения, ключ — карточка персонажа), а не в этом
+// конкретном чате. Новый чат с тем же героем видит те же контакты сразу.
+// Ручной снимок переписки телефона (смс, звонки, фото) в карточке персонажа.
+// Строго по кнопке — не автоматически, чтобы разные ветки сюжета с одним и
+// тем же героем не путались друг у друга под ногами.
+function phoneBackupSave() {
+    const b = bank();
+    const s = store();
+    b.backup = {
+        events: JSON.parse(JSON.stringify(s.events)),
+        time: s.time,
+        date: s.date,
+        savedAt: Date.now(),
+    };
+    igSave();
+    return b.backup.events.length;
+}
+
+function phoneBackupInfo() {
+    const b = bank();
+    if (!b.backup) return null;
+    return { count: b.backup.events.length, savedAt: b.backup.savedAt };
+}
+
+// Восстановление ДОБАВЛЯЕТ снимок к текущей переписке, а не заменяет её —
+// если что-то из снимка уже есть в этом чате (по id события), оно пропускается.
+function phoneBackupRestore() {
+    const b = bank();
+    if (!b.backup || !Array.isArray(b.backup.events) || !b.backup.events.length) return 0;
+
+    const s = store();
+    const known = new Set(s.events.map(e => e.id));
+    const toAdd = b.backup.events.filter(e => !known.has(e.id));
+    s.events.push(...toAdd);
+    s.events.sort((a, z) => (a.ts || 0) - (z.ts || 0));
+
+    save();
+    render();
+    scrubAll();
+    return toAdd.length;
+}
+
+function bank() {
+    const s = settings();
+    if (!s.bank) s.bank = {};
+    const key = charKey();
+    if (!s.bank[key]) s.bank[key] = { contacts: {}, groups: {} };
+    if (!s.bank[key].contacts) s.bank[key].contacts = {};
+    if (!s.bank[key].groups) s.bank[key].groups = {};
+    return s.bank[key];
+}
+
 function store() {
     if (!chat_metadata[MODULE]) {
         chat_metadata[MODULE] = { version: 1, contacts: {}, groups: {}, events: [], time: '', date: '' };
@@ -1532,10 +1586,35 @@ function store() {
     if (!s.contacts) s.contacts = {};
     if (!s.groups) s.groups = {};
     if (!s.events) s.events = [];
+
+    // Разовый перенос за чат: то, что уже было заведено именно в этом чате,
+    // добавляется в постоянное хранилище персонажа — но только ключи,
+    // которых там ещё нет, чтобы не затереть то, что уже перенёс другой чат
+    // с этим же героем.
+    const b = bank();
+    if (!s.migratedToBank) {
+        for (const [k, v] of Object.entries(s.contacts)) if (!b.contacts[k]) b.contacts[k] = v;
+        for (const [k, v] of Object.entries(s.groups)) if (!b.groups[k]) b.groups[k] = v;
+        s.migratedToBank = true;
+    }
+
+    // Дальше store().contacts и store().groups — это тот же самый объект,
+    // что лежит в постоянном хранилище: чтение, запись и удаление по любому
+    // ключу в любом месте кода дальше работают уже с постоянными данными.
+    s.contacts = b.contacts;
+    s.groups = b.groups;
+
     return s;
 }
 
-const save = () => saveMetadataDebounced();
+// Контакты и группы теперь тоже лежат в постоянном хранилище персонажа
+// (в настройках расширения), а store() отдаёт на них ту же ссылку — значит
+// один save() должен фиксировать оба места. Иначе правка контакта прожила бы
+// только до перезагрузки страницы.
+const save = () => {
+    saveMetadataDebounced();
+    igSave();
+};
 
 function keyOf(name) {
     return String(name || '').trim().toLowerCase();
@@ -4226,6 +4305,37 @@ async function askForPhoto(k) {
     if (settings().autoPhotos) generatePhoto(ev);
 }
 
+// Фото от владельца телефона подписываем через встроенный в Таверну модуль
+// Image Captioning (public/scripts/extensions/shared.js, getMultimodalCaption).
+// Это отдельный, официальный путь ST для НАСТОЯЩЕГО мультимодального
+// распознавания — со своим API и своим ключом, независимо от того, чем
+// ведётся сама ролевая игра. Импорт динамический и в try/catch: если в
+// чьей-то версии Таверны путь или экспорт другие, сломается только подпись
+// фото, а не всё расширение целиком.
+async function realCaption(dataUrl) {
+    if (!dataUrl) return '';
+    try {
+        const mod = await import('../../shared.js');
+        if (typeof mod.getMultimodalCaption !== 'function') return '';
+
+        const prompt = [
+            'Describe in ONE short factual sentence exactly what is depicted in this photo.',
+            'Be concrete and specific — say "fried chicken on a plate", not "some food".',
+            'No opinions, no style words, no camera talk. Under 20 words. Plain text only.',
+        ].join(' ');
+
+        const caption = await mod.getMultimodalCaption(dataUrl, prompt);
+        return String(caption || '').trim().split('\n')[0].replace(/^["']|["']$/g, '').slice(0, 160);
+    } catch (err) {
+        // Самая частая причина — в Таверне не настроено расширение Image
+        // Captioning (Extensions → Image Captioning → выбрать мультимодальный
+        // API и ключ). Без этого шага герой не может по-настоящему увидеть фото.
+        logDebug(`фото не распозналось: ${err?.message || err}. Настрой Extensions → `
+            + `Image Captioning (мультимодальный API) в самой Таверне, чтобы герой видел, что на фото.`);
+        return '';
+    }
+}
+
 async function sendPhotoFromPhone(k, file) {
     const c = contact(k.replace(/^g:/, '')) || { name: k };
     let url = '';
@@ -4236,10 +4346,61 @@ async function sendPhotoFromPhone(k, file) {
         return;
     }
 
-    const mesId = await pushToChat(`[PHONE]\nPHOTO|${c.name}|a photo the owner took|sent a photo|out\n[/PHONE]`);
-    addEvent({ mesId, type: 'photo', dir: 'out', from: c.name, image: url, state: 'done', text: '' });
+    const caption = settings().photoRealCaption ? await realCaption(url) : '';
+    const desc = caption || 'a photo the owner took';
+
+    const mesId = await pushToChat(`[PHONE]\nPHOTO|${c.name}|${desc}|sent a photo|out\n[/PHONE]`);
+    addEvent({ mesId, type: 'photo', dir: 'out', from: c.name, image: url, state: 'done', text: '', prompt: caption });
     save();
     render();
+
+    // Раньше здесь ничего не происходило — герой молча получал снимок и
+    // никогда на него не отвечал, даже когда содержимое было распознано.
+    const mode = settings().replyMode;
+    if (mode === 'phone') await generatePhotoReply(c, caption);
+    else if (mode === 'chat') await runSlash('/trigger');
+}
+
+// Ответ на присланное фото. Если распознавание сработало — герой реагирует
+// на конкретное содержимое; если нет — реагирует тепло, но не выдумывает
+// подробностей, которых на самом деле не видел.
+async function generatePhotoReply(c, caption) {
+    try {
+        await wait(700 + Math.random() * 1400);
+        live.typing = c.key;
+        render();
+
+        const scene = sceneContext(4);
+        const prompt = [
+            cardContext(true),
+            `Current scene:\n${scene}`,
+            c.lore ? `Who ${c.name} is: ${c.lore}` : '',
+            c.style ? `How ${c.name} texts: ${c.style}` : '',
+            caption
+                ? `The owner just sent ${c.name} a photo. What is actually in it: ${caption}.`
+                : `The owner just sent ${c.name} a photo, but what exactly is in it isn't known here — `
+                    + `react warmly and naturally without inventing specific details you can't see.`,
+            `Write ONE short text message reacting to the photo, in ${c.name}'s own texting voice.`,
+            caption ? `Reference something specific and real from what is actually in the photo.` : '',
+            `Under ${settings().replyLength} characters. No quotes, no name prefix, no narration.`,
+            `Answer with exactly [silence] only if there's a strong story reason not to reply.`,
+        ].filter(Boolean).join('\n\n');
+
+        let text = await askModel(prompt);
+        text = String(text || '').trim().replace(/^["']|["']$/g, '');
+        if (!text || /^\[?silence\]?$/i.test(text)) return;
+
+        await wait(Math.min(600 + text.length * 22, 5200));
+        addEvent({ mesId: null, type: 'sms', dir: 'in', from: c.name, text });
+        save();
+        render();
+        pushInjection();
+    } catch (err) {
+        logDebug(`ошибка ответа на фото: ${err?.message || err}`);
+    } finally {
+        live.typing = '';
+        render();
+    }
 }
 
 async function sendFromPhone(k, text) {
@@ -4410,6 +4571,10 @@ function igKey() {
     const ch = chars[cid];
     return `char:${ch?.avatar || ch?.name || 'default'}`;
 }
+
+// Тот же ключ персонажа нужен и вне Инстаграма — контактам и резервной копии
+// переписки. Имя не меняю (igKey уже используется), просто даю общий алиас.
+const charKey = igKey;
 
 // Ленту сохраняем в настройки, а не в метаданные чата.
 function igSave() {
@@ -5613,6 +5778,10 @@ function buildSettingsPanel() {
                     <input type="checkbox" data-s="igCrowdModel">
                     <span>Комментарии подписчиков сочиняет модель (иначе заготовки)</span>
                 </label>
+                <label class="ivyph-check">
+                    <input type="checkbox" data-s="photoRealCaption">
+                    <span>Фото от владельца реально распознаётся (через Image Captioning Таверны — настрой в Extensions → Image Captioning)</span>
+                </label>
 
                 <hr>
                 <b>Ответы</b>
@@ -5656,6 +5825,12 @@ function buildSettingsPanel() {
 
                 <hr>
                 <button class="menu_button" data-report>Показать отчёт</button>
+
+                <hr>
+                <b>Копия переписки для этого персонажа</b>
+                <p style="opacity:.65;font-size:12px;margin:4px 0 8px" data-backup-info></p>
+                <button class="menu_button" data-backup-save>Сохранить копию переписки</button>
+                <button class="menu_button" data-backup-restore>Восстановить переписку сюда</button>
             </div>
         </div>`;
     host.appendChild(box);
@@ -5663,6 +5838,32 @@ function buildSettingsPanel() {
     box.querySelector('[data-report]')?.addEventListener('click', () => {
         const text = debugLog.length ? debugLog.join('\n') : 'Ошибок не было.';
         alert(text);
+    });
+
+    const infoLine = box.querySelector('[data-backup-info]');
+    const refreshBackupInfo = () => {
+        if (!infoLine) return;
+        const info = phoneBackupInfo();
+        infoLine.textContent = info
+            ? `В копии ${info.count} событий, сохранено ${new Date(info.savedAt).toLocaleString()}`
+            : 'Копии пока нет';
+    };
+    refreshBackupInfo();
+
+    box.querySelector('[data-backup-save]')?.addEventListener('click', () => {
+        const n = phoneBackupSave();
+        refreshBackupInfo();
+        alert(`Сохранено в карточку персонажа: ${n} событий.`);
+    });
+
+    box.querySelector('[data-backup-restore]')?.addEventListener('click', () => {
+        const info = phoneBackupInfo();
+        if (!info) { alert('Для этого персонажа ещё нет сохранённой копии.'); return; }
+        if (!confirm(`Добавить в этот чат ${info.count} событий из копии `
+            + `(сохранена ${new Date(info.savedAt).toLocaleString()})? `
+            + `То, что уже есть в этом чате, не задвоится.`)) return;
+        const added = phoneBackupRestore();
+        alert(added ? `Добавлено ${added} новых событий.` : 'Всё из копии уже есть в этом чате.');
     });
 
     box.querySelectorAll('[data-s]').forEach(f => {
